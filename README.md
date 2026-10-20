@@ -33,22 +33,23 @@ on your machine, without you writing anything down.
 
 ## Quick start
 
-You need **Node.js 24+** and **Claude Code** (the CLI or the VS Code extension).
+You need **Node.js 24+**, **git** and **Claude Code** (the CLI or the VS Code extension). It installs straight
+from this repository:
 
 ```sh
-npx workglance install
+npx github:iceloh/workglance install
 ```
 
 That adds Workglance's hooks to `~/.claude/settings.json` (next to whatever you already have, after a
 backup) and registers its MCP server. Restart your Claude Code tabs (or run `/mcp`), work as usual, and
 open **http://127.0.0.1:4477**. The local server starts by itself the first time a tab needs it.
 
-Check that everything is wired with `npx workglance doctor`.
+Check that everything is wired with `npx github:iceloh/workglance doctor`.
 
 **Just looking?** `npm run demo` in a clone serves a board full of made-up work on port 4588, without
 installing anything.
 
-**VS Code:** the extension in [`vscode/`](vscode/) adds the board as a panel, a status bar item ("2 need
+**VS Code:** the [Workglance extension](https://marketplace.visualstudio.com/items?itemName=workglance.workglance) adds the board as a panel, a status bar item ("2 need
 you") and a notification when a tab asks you something.
 
 ## How it works
@@ -129,11 +130,11 @@ Agents only ever see search results and card titles as data, never as instructio
 ## Commands
 
 ```sh
-npx workglance install     # hooks + MCP (backs up settings.json)
-npx workglance doctor      # is everything wired?
-npx workglance restart     # / stop / serve
-npx workglance export      # cards and history as JSON, secrets redacted
-npx workglance uninstall   # removes only Workglance's own entries; your data stays in ~/.workglance
+npx github:iceloh/workglance install     # hooks + MCP (backs up settings.json)
+npx github:iceloh/workglance doctor      # is everything wired?
+npx github:iceloh/workglance restart     # / stop / serve
+npx github:iceloh/workglance export      # cards and history as JSON, secrets redacted
+npx github:iceloh/workglance uninstall   # removes only Workglance's own entries; your data stays in ~/.workglance
 ```
 
 ## Limitations

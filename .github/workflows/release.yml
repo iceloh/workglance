@@ -1,6 +1,5 @@
 name: release
 # Push a tag vX.Y.Z (matching package.json) and this publishes it:
-# - npm, through npm's trusted publishing (OIDC from this workflow, no token stored anywhere);
 # - the VS Code extension to the Marketplace, if a VSCE_PAT secret exists (otherwise skipped);
 # - a GitHub release with the extension's .vsix attached (for manual upload or install).
 on:
@@ -9,7 +8,6 @@ on:
 
 permissions:
   contents: write   # create the GitHub release
-  id-token: write   # npm trusted publishing and provenance
 
 jobs:
   publish:
@@ -21,14 +19,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - name: The tag is the package version
         run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
-      # prepublishOnly builds and tests again; npm 11.5+ (Node 24) does trusted publishing.
-      - run: npm publish --provenance --access public
       - name: Package the VS Code extension
         run: cd vscode && npx --yes @vscode/vsce@3 package --skip-license -o ../workglance-vscode.vsix
       - name: Publish the extension (only with a VSCE_PAT secret; an unchanged version is skipped)

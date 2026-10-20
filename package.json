@@ -36,7 +36,8 @@
     "test": "node --no-warnings --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm test",
-    "demo": "node --no-warnings scripts/demo.ts --serve"
+    "demo": "node --no-warnings scripts/demo.ts --serve",
+    "prepare": "node scripts/build.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
