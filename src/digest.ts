@@ -130,6 +130,10 @@ export function summarize(text: string, timeoutMs = 120_000): Promise<string> {
     // CLAUDE.md files can't be switched off on a subscription (--bare needs an API key), so say what we
     // want and keep only the prose: a personal "add a corrections section" rule once landed in the digest.
     const p = spawn(`claude -p --max-turns 1 --setting-sources project,local --append-system-prompt "${ONLY_SUMMARY}"`, { cwd, env: { ...process.env, WORKGLANCE_DISABLED: "1" }, shell: true, windowsHide: true });
+    // When claude isn't installed the shell exits before reading the prompt: the write fails with EPIPE, and
+    // unhandled, that error took the whole server down (its scheduled digest runs at start).
+    p.stdin.on("error", () => {});
+    p.on("error", (e) => reject(e));
     p.stdin.end(prompt);
     let out = "", err = "";
     const timer = setTimeout(() => { p.kill(); reject(new Error("summary timed out")); }, timeoutMs);

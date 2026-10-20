@@ -2,7 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "./db.ts";
 import { createTask, updateTask } from "./tasks.ts";
-import { dayBounds, digest, digestText, todayLocal } from "./digest.ts";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { dayBounds, digest, digestText, summarize, todayLocal } from "./digest.ts";
+
+test("summarize: no claude on the PATH rejects, it doesn't crash on the unread prompt", async () => {
+  const empty = mkdtempSync(join(tmpdir(), "wt-nopath-"));
+  const path = process.env.PATH;
+  process.env.PATH = empty;
+  try {
+    // A prompt larger than a pipe buffer: the write is still pending when the shell exits.
+    await assert.rejects(summarize("x".repeat(1_000_000), 20_000));
+  } finally {
+    process.env.PATH = path;
+  }
+});
 
 test("dayBounds: the local day, as instants", () => {
   const { from, to } = dayBounds("2026-10-19");
