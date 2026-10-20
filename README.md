@@ -48,7 +48,7 @@ Check that everything is wired with `npx workglance doctor`.
 **Just looking?** `npm run demo` in a clone serves a board full of made-up work on port 4588, without
 installing anything.
 
-**VS Code:** the extension in [`vscode/`](vscode/) adds the board as a panel, a status bar item ("2 need
+**VS Code:** the [Workglance extension](https://marketplace.visualstudio.com/items?itemName=workglance.workglance) adds the board as a panel, a status bar item ("2 need
 you") and a notification when a tab asks you something.
 
 ## How it works
