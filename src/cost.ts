@@ -2,7 +2,6 @@
 // how much model work a task took, comparable across tasks and tabs.
 import type { Db } from "./db.ts";
 import { loadConfig } from "./config.ts";
-import { dirname } from "node:path";
 import { normalizeDir } from "./transcript.ts";
 
 /** $ per million tokens. Cached 2026-10-06 from the Claude API model table; override in config `prices`. */
@@ -99,9 +98,10 @@ export function costByRepo(db: Db, from: string, to: string, prices = activePric
  * repo's checkout belonged to that repo. The folder itself wins when it has its own (a nested repo).
  */
 export function repoOfDir(repoOf: Map<string, string>, dir: string): string | undefined {
-  for (let d = dir, up = dirname(d); ; d = up, up = dirname(d)) {
+  // Up one folder by the last separator of either kind: path.dirname only knows the running platform's.
+  for (let d = dir; ; d = d.slice(0, Math.max(d.lastIndexOf("/"), d.lastIndexOf("\\")))) {
     const r = repoOf.get(d);
-    if (r || up === d) return r;
+    if (r || !/[\\/]./.test(d)) return r;
   }
 }
 

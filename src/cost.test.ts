@@ -10,6 +10,9 @@ test("repoOfDir: a deleted worktree inside a repo counts for it; a nested repo k
   assert.equal(repoOfDir(m, normalizeDir("C:\\dev\\shop\\.claude\\worktrees\\fix-cart\\src")), "shop");
   assert.equal(repoOfDir(m, normalizeDir("C:\\dev\\shop\\vendor\\lib\\src")), "lib");
   assert.equal(repoOfDir(m, dev), undefined);
+  // Either separator, on any platform: CI runs these Windows paths on Linux too.
+  assert.equal(repoOfDir(new Map([["/home/me/shop", "shop"]]), "/home/me/shop/.claude/worktrees/x"), "shop");
+  assert.equal(repoOfDir(new Map([["/home/me/shop", "shop"]]), "/home/me"), undefined);
 });
 
 test("costByRepo: each response goes to the repo of the folder its prompt came from", () => {
