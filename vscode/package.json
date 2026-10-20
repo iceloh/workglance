@@ -1,7 +1,7 @@
 {
   "name": "workglance",
-  "displayName": "Workglance",
-  "description": "What every AI coding tab did, across every repo: a task board your agents keep, and who needs you right now.",
+  "displayName": "Workglance: what every AI coding tab did",
+  "description": "Five Claude Code tabs open? See which one needs you right now, what each one did across every repo, and whether the work really shipped. A task board your agents keep themselves. Local and private.",
   "version": "0.9.0",
   "publisher": "workglance",
   "icon": "icon.png",
@@ -18,6 +18,8 @@
     "vscode": "^1.90.0"
   },
   "categories": [
+    "AI",
+    "Visualization",
     "Other"
   ],
   "main": "./extension.js",
@@ -55,5 +57,20 @@
         }
       }
     }
+  },
+  "keywords": [
+    "claude",
+    "claude code",
+    "ai agents",
+    "agents",
+    "task board",
+    "kanban",
+    "mcp",
+    "productivity",
+    "worktree"
+  ],
+  "homepage": "https://github.com/iceloh/workglance#readme",
+  "bugs": {
+    "url": "https://github.com/iceloh/workglance/issues"
   }
 }
