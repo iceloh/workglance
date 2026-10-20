@@ -27,8 +27,18 @@ jobs:
       - run: npm test
       - name: The tag is the package version
         run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
-      # prepublishOnly builds and tests again; npm 11.5+ (Node 24) does trusted publishing.
-      - run: npm publish --provenance --access public
+      # Trusted publishing needs npm 11.5.1+; the runner's Node may ship an older one.
+      - run: npm install -g npm@11 && npm --version
+      # prepublishOnly builds and tests again. On failure, npm's own message becomes an annotation: job logs
+      # are only visible when logged in, annotations are public.
+      - name: npm publish
+        shell: bash
+        run: |
+          set -o pipefail
+          npm publish --provenance --access public 2>&1 | tee publish.log || {
+            echo "::error title=npm publish failed::$(grep -E 'npm (error|ERR)' publish.log | tail -n 8 | tr '\n' ' ' | cut -c1-900)"
+            exit 1
+          }
       - name: Package the VS Code extension
         run: cd vscode && npx --yes @vscode/vsce@3 package --skip-license -o ../workglance-vscode.vsix
       - name: Publish the extension (only with a VSCE_PAT secret; an unchanged version is skipped)
