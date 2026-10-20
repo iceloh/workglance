@@ -72,7 +72,8 @@ try {
   assert.ok(JSON.stringify(after.hooks.Stop).includes("other-tool"), "other tools' hooks still there");
   console.log("\nSMOKE OK");
 } catch (e) {
-  if (process.env.GITHUB_ACTIONS) console.log(`::error title=smoke failed (${process.platform})::${String(e?.message ?? e).replace(/\s+/g, " ")} || ${trail.join(" || ").slice(0, 1500)}`);
+  try { keep("server.log", readFileSync(join(home, "server.log"), "utf8").slice(-1200)); } catch {}
+  if (process.env.GITHUB_ACTIONS) console.log(`::error title=smoke failed (${process.platform})::${String(e?.message ?? e).replace(/\s+/g, " ")} || ${trail.join(" || ").slice(-2500)}`);
   throw e;
 } finally {
   try { await fetch("http://127.0.0.1:4599/api/shutdown", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); } catch {}
