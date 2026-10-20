@@ -1,6 +1,6 @@
 {
   "name": "workglance",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "What every AI coding tab did, across every repo: a task board your Claude Code agents keep themselves, which tab needs you right now, and how far each piece of work got.",
   "license": "MIT",
   "author": "Marcelo Araujo",
