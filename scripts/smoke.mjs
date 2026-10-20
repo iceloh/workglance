@@ -19,6 +19,9 @@ writeFileSync(join(claudeDir, "settings.json"), JSON.stringify({ theme: "dark", 
 const env = { ...process.env, CLAUDE_CONFIG_DIR: claudeDir, WORKGLANCE_HOME: home, WORKGLANCE_PORT: "4599", WORKGLANCE_CLAUDE_PROJECTS: join(root, "projects") };
 const step = (name) => console.log(`\n== ${name}`);
 const settings = () => JSON.parse(readFileSync(join(claudeDir, "settings.json"), "utf8"));
+// What the last steps printed: on failure it goes into a GitHub annotation (public; job logs need a login).
+const trail = [];
+const keep = (label, text) => { if (text) trail.push(`${label}: ${String(text).replace(/\s+/g, " ").slice(0, 400)}`); };
 
 try {
   step("npm install -g --prefix (the package alone, no dependencies)");
@@ -29,6 +32,7 @@ try {
   step("workglance install");
   const inst = wt("install");
   console.log(inst.stdout, inst.stderr);
+  keep("install", inst.stdout + inst.stderr);
   const app = join(home, "app");
   for (const f of ["cli.js", "hook.js", "refresh-worker.js"]) assert.ok(existsSync(join(app, f)), `app/${f} copied`);
   const s = settings();
@@ -41,6 +45,7 @@ try {
   step("a SessionStart hook: protocol out, server started by itself");
   const payload = JSON.stringify({ session_id: "00000000-0000-0000-0000-000000000001", cwd: process.cwd(), hook_event_name: "SessionStart" }); // a real project folder: temp folders are ignored on purpose
   const hook = spawnSync(process.execPath, ["--no-warnings", join(app, "hook.js"), "SessionStart"], { env, input: payload, encoding: "utf8" });
+  keep("hook", (hook.stdout || "").slice(0, 200) + " " + (hook.stderr || "") + " exit " + hook.status);
   assert.match(hook.stdout, /Workglance \(task tracking/, "the hook printed the protocol");
   let up = false;
   for (let i = 0; i < 40 && !up; i++) {
@@ -54,6 +59,7 @@ try {
   step("workglance doctor");
   const doc = wt("doctor");
   console.log(doc.stdout);
+  keep("doctor", doc.stdout + doc.stderr);
   assert.match(doc.stdout, /✓ hooks/, "doctor sees the hooks");
   assert.match(doc.stdout, /✓ server/, "doctor sees the server");
 
@@ -65,6 +71,9 @@ try {
   assert.ok(!JSON.stringify(after).includes("hook.js"), "no workglance hook left");
   assert.ok(JSON.stringify(after.hooks.Stop).includes("other-tool"), "other tools' hooks still there");
   console.log("\nSMOKE OK");
+} catch (e) {
+  if (process.env.GITHUB_ACTIONS) console.log(`::error title=smoke failed (${process.platform})::${String(e?.message ?? e).replace(/\s+/g, " ")} || ${trail.join(" || ").slice(0, 1500)}`);
+  throw e;
 } finally {
   try { await fetch("http://127.0.0.1:4599/api/shutdown", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); } catch {}
   await new Promise((r) => setTimeout(r, 500));

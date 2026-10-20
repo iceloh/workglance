@@ -32,7 +32,7 @@ test("digest: done, testing, started, commits and cost for the day, as data and 
   assert.deepEqual(d.tabs.map((t) => [t.title, t.prompts, t.cost.usd]), [["CHECKOUT", 1, 20]]);
   const text = digestText(d);
   assert.match(text, /Done:\n- W-1 \(bug\) Fix signer — author filtered/);
-  assert.match(text, /CHECKOUT: 1 prompts, ~\$20\.00/);
+  assert.match(text, /== Repo other/, "cards without a repo are grouped as 'other'");
 });
 
 test("proseOnly: keeps the summary, drops sections other rules append", async () => {
@@ -40,4 +40,27 @@ test("proseOnly: keeps the summary, drops sections other rules append", async ()
   const out = "Shipped W-1 and W-2.\nW-3 waits for review.\n\n**Corrections**\n- x -> y\n\n[othertool]: # \"empty\"";
   assert.equal(proseOnly(out), "Shipped W-1 and W-2.\nW-3 waits for review.");
   assert.equal(proseOnly("Just prose."), "Just prose.");
+});
+
+test("byRepo: one section per repo, most active first; a card appears once", async () => {
+  const { byRepo } = await import("./digest.ts");
+  const card = (id: number, repo: string) => ({ id, title: `t${id}`, repo });
+  const groups = byRepo({
+    date: null, from: "", to: "", tabs: [], total: { usd: 0, responses: 0, outputTokens: 0, unpriced: 0 }, testingNow: [],
+    closed: [{ ...card(1, "shop"), type: "bug", result: null }],
+    toTesting: [card(2, "shop"), card(1, "shop")],            // W-1 also closed: shown once, as done
+    started: [card(3, "site")],
+    created: [{ ...card(4, "site"), status: "planned" }, { ...card(3, "site"), status: "in_progress" }],
+    commits: [{ repo: "site", n: 2 }, { repo: "infra", n: 1 }],
+  });
+  assert.deepEqual(groups.map((g) => g.repo), ["shop", "site", "infra"]);
+  assert.deepEqual(groups[0]!.toTesting.map((t) => t.id), [2]);
+  assert.deepEqual(groups[1]!.created.map((t) => t.id), [4]);
+  assert.equal(groups[2]!.commits, 1);
+});
+
+test("summaryHtml: the summary's parts, with repo names and 'Needs you' in bold", async () => {
+  const { summaryHtml } = await import("./page.ts");
+  const html = summaryHtml("A busy day.\n\nshop: Fixed checkout <b>.\n\nNeeds you: W-3 waits.");
+  assert.equal(html, "<p>A busy day.</p><p><b>shop:</b> Fixed checkout &lt;b&gt;.</p><p><b>Needs you:</b> W-3 waits.</p>");
 });

@@ -4,7 +4,7 @@ import type { BoardStats, LiveTab, Stage, TabView, TaskCard, TaskDetail, Timelin
 import type { CostSummary } from "./cost.ts";
 import type { Attention } from "./attention.ts";
 import type { Hit } from "./search.ts";
-import type { Digest } from "./digest.ts";
+import { byRepo, type Digest, type RepoGroup } from "./digest.ts";
 import type { Metrics } from "./metrics.ts";
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -229,25 +229,51 @@ export type DigestView = {
 };
 
 export function renderDigestPage(d: Digest, summary: string | null, v: DigestView): string {
-  const list = (items: { id: number; title: string }[]) => items.length ? `<ul>${items.map((t) => `<li><a href="/task/${t.id}"><span class="muted">W-${t.id}</span> ${esc(t.title)}</a></li>`).join("")}</ul>` : `<div class="muted">—</div>`;
+  const groups = byRepo(d);
+  const cardLink = (t: { id: number; title: string }) => `<a href="/task/${t.id}"><span class="muted">W-${t.id}</span> ${esc(t.title)}</a>`;
+  // A result shows its first sentence; the rest opens on click.
+  const result = (r: string | null) => {
+    if (!r) return "";
+    const first = r.replace(/\s+/g, " ").match(/^.{1,160}?[.!?](\s|$)/)?.[0]?.trim() ?? r.slice(0, 160);
+    return first.length >= r.trim().length ? `<div class="muted small">${esc(r)}</div>`
+      : `<details class="res"><summary class="muted small">${esc(first)}</summary><div class="muted small">${esc(r)}</div></details>`;
+  };
+  const block = (label: string, items: string[]) => items.length ? `<h4>${label} <span class="muted">${items.length}</span></h4><ul>${items.join("")}</ul>` : "";
+  const counts = (g: RepoGroup) => [g.closed.length && `${g.closed.length} done`, g.toTesting.length && `${g.toTesting.length} to testing`,
+    g.started.length && `${g.started.length} started`, g.created.length && `${g.created.length} new`, g.commits && `${g.commits} commit${g.commits === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+  const section = (g: RepoGroup) => `<section class="repo"><h3>${esc(g.repo)} <span class="muted small">${counts(g)}</span></h3>
+${block("Done", g.closed.map((t) => `<li>${cardLink(t)} <span class="chip type">${esc(t.type)}</span>${result(t.result)}</li>`))}
+${block("Moved to testing", g.toTesting.map((t) => `<li>${cardLink(t)}</li>`))}
+${block("Started", g.started.map((t) => `<li>${cardLink(t)}</li>`))}
+${block("New cards", g.created.map((t) => `<li>${cardLink(t)} <span class="muted small">${esc(t.status.replace("_", " "))}</span></li>`))}
+${!g.closed.length && !g.toTesting.length && !g.started.length && !g.created.length ? `<div class="muted small">Commits only.</div>` : ""}</section>`;
+  const needs = d.testingNow.length ? `<section class="repo needs"><h3>Needs you <span class="muted small">${d.testingNow.length} waiting for your verification</span></h3>
+<ul>${d.testingNow.map((t) => `<li>${cardLink(t)} <span class="chip">${esc(t.repo)}</span></li>`).join("")}</ul></section>` : "";
+  const total = [d.closed.length && `${d.closed.length} done`, d.commits.reduce((n, c) => n + c.n, 0) && `${d.commits.reduce((n, c) => n + c.n, 0)} commits`,
+    d.tabs.length && `${d.tabs.length} tabs`].filter(Boolean).join(" · ");
   return shell(v.heading, `${topNav("digest")}<main class="detail">
 <h2>${esc(v.heading)} <span class="small">${v.prev ? `<a href="${esc(v.prev)}">← previous</a>` : ""}${v.prev && v.next ? " · " : ""}${v.next ? `<a href="${esc(v.next)}">next →</a>` : ""}</span></h2>
-<p class="muted">${esc(v.window)}${v.note ? ` · ${esc(v.note)}` : ""}</p>
-<div class="pre" id="summary">${summary ? esc(summary) : `<button class="btn" onclick='summarize(${esc(JSON.stringify(v.summarize))})'>Summarize with Claude</button> <span class="muted small">runs <code>claude -p</code> once on your subscription; nothing is sent anywhere else</span>`}</div>
-<h3>Done (${d.closed.length})</h3>${d.closed.length ? `<ul>${d.closed.map((t) => `<li><a href="/task/${t.id}"><span class="muted">W-${t.id}</span> ${esc(t.title)}</a> <span class="chip type">${esc(t.type)}</span>${t.result ? `<div class="muted small">${esc(t.result.slice(0, 300))}</div>` : ""}</li>`).join("")}</ul>` : `<div class="muted">—</div>`}
-<h3>Waiting for you to verify (${d.testingNow.length})</h3>${list(d.testingNow)}
-<h3>Moved to testing (${d.toTesting.length})</h3>${list(d.toTesting)}
-<h3>Started (${d.started.length})</h3>${list(d.started)}
-<h3>New cards (${d.created.length})</h3>${list(d.created)}
-<h3>Commits</h3>${d.commits.length ? `<p>${d.commits.map((c) => `${esc(c.repo)} <b>${c.n}</b>`).join(" · ")}</p>` : `<div class="muted">—</div>`}
-<h3>Tabs · model work ${money(d.total) || "—"} <span class="muted small">(API list prices; on a subscription this is effort, not your bill)</span></h3>
-${d.tabs.length ? `<table>${d.tabs.map((t) => `<tr><td><a href="${openTabUrl(t.id)}">${esc(t.title ?? t.id.slice(0, 8))}</a></td><td>${t.prompts} prompts</td><td>${money(t.cost)}</td></tr>`).join("")}</table>` : `<div class="muted">No activity.</div>`}
+<p class="muted">${esc(v.window)}${v.note ? ` · ${esc(v.note)}` : ""}${total ? ` · ${total}` : ""}${d.total.usd ? ` · ${money(d.total)}` : ""}</p>
+<div class="digestsum" id="summary">${summary ? summaryHtml(summary) : ""}
+<div class="small">${summary ? `<button class="mini" onclick='summarize(${esc(JSON.stringify(v.summarize))})'>Rewrite summary</button>` : `<button class="btn" onclick='summarize(${esc(JSON.stringify(v.summarize))})'>Summarize with Claude</button>`} <span class="muted small">runs <code>claude -p</code> once on your subscription; nothing is sent anywhere else</span></div></div>
+${needs}
+${groups.length ? groups.map(section).join("") : `<div class="empty">Nothing happened in this period.</div>`}
+<details class="repo"><summary><b>Tabs · model work</b> ${money(d.total) || "—"} <span class="muted small">(API list prices; on a subscription this is effort, not your bill)</span></summary>
+${d.tabs.length ? `<table>${d.tabs.map((t) => `<tr><td><a href="${openTabUrl(t.id)}">${esc(t.title ?? t.id.slice(0, 8))}</a></td><td>${t.prompts} prompts</td><td>${money(t.cost)}</td></tr>`).join("")}</table>` : `<div class="muted">No activity.</div>`}</details>
 <p class="muted small">Digests are written at the times set in <a href="/settings">Settings</a>; each one covers everything since the previous one. <a href="/digest?date=${todayISO()}">Calendar days →</a></p>
 </main>
 <script>${BOARD_JS}
 async function summarize(body){const box=document.getElementById("summary");box.textContent="Asking Claude… (up to a minute)";
   const r=await fetch("/api/digest/summary",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
-  const j=await r.json().catch(()=>({}));box.textContent=r.ok?j.summary:("Could not summarize: "+(j.error||r.status))}</script>`);
+  const j=await r.json().catch(()=>({}));if(r.ok)location.reload();else box.textContent="Could not summarize: "+(j.error||r.status)}</script>`);
+}
+
+/** The summary in its parts (overview, one per repo, "needs you"): a part that starts with "Name:" gets the name in bold. */
+export function summaryHtml(text: string): string {
+  return text.split(/\n\s*\n|\n(?=[^\s:]{1,40}:\s)/).map((part) => part.trim()).filter(Boolean).map((part) => {
+    const m = part.match(/^([^:\n]{1,40}):\s+([\s\S]*)$/);
+    return m ? `<p><b>${esc(m[1]!)}:</b> ${esc(m[2]!)}</p>` : `<p>${esc(part)}</p>`;
+  }).join("");
 }
 
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
@@ -394,6 +420,10 @@ const CSS = `
 .mstat b{font-size:14px;margin-right:4px;font-variant-numeric:tabular-nums}.mstat span{color:var(--muted)}.mstat b .est{color:var(--text)}
 @media (max-width:1000px){.layout{display:block}.rail{position:static;max-height:none;padding:12px 20px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.rail h4{margin:0 4px 0 0}.rgroup{display:contents}.rgroup h5,.rstate{display:none}.rtab{display:inline-flex;gap:6px;border:1px solid var(--line);background:var(--card);padding:4px 10px;border-radius:999px}}
 .newdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#f97316;vertical-align:2px;margin-left:2px}
+.repo{border:1px solid var(--line);border-radius:12px;padding:10px 16px;margin:14px 0;background:var(--card)}.repo h3{margin:4px 0 6px;font-size:15px}.repo h4{margin:10px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.repo ul{margin:0 0 4px;padding-left:18px}.repo li{margin:4px 0}.repo.needs{border-color:#f97316}.repo.needs h3{color:#f97316}
+.res summary{cursor:pointer;list-style:none}.res summary::-webkit-details-marker{display:none}.res summary::after{content:" …";color:var(--accent)}.res[open] summary{display:none}
+.digestsum{border:1px solid var(--line);border-radius:12px;padding:6px 16px 12px;background:var(--card);line-height:1.55}.digestsum p{margin:10px 0}
 #tabdlg{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--text);padding:22px 24px;width:min(460px,calc(100vw - 32px));box-shadow:0 20px 60px rgba(0,0,0,.45)}
 #tabdlg::backdrop{background:rgba(10,12,16,.55);backdrop-filter:blur(2px)}
 #tabdlg h3{margin:0 0 8px;font-size:16px}#tabdlg p{margin:0 0 10px;color:var(--muted);line-height:1.5;font-size:13px}
