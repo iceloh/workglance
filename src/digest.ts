@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Db } from "./db.ts";
 import { costBetween, type CostSummary } from "./cost.ts";
+import { REPO_NAME as REPO } from "./tasks.ts";
 
 /** A card in a digest, with the repo it belongs to (its name; "other" when the card has no repo). */
 export type DigestCard = { id: number; title: string; repo: string };
@@ -41,8 +42,6 @@ export function digest(db: Db, date: string): Digest {
   return digestBetween(db, from, to, date);
 }
 
-// The repo a card belongs to, by name: the repos table, else the folder's last part, else "other".
-const REPO = `COALESCE((SELECT r.name FROM repos r WHERE r.id = t.repo), NULLIF(replace(replace(t.repo, rtrim(t.repo, replace(replace(t.repo, '\\', ''), '/', '')), ''), '/', ''), ''), 'other')`;
 
 export function digestBetween(db: Db, from: string, to: string, date: string | null): Digest {
   const ev = (cond: string) => db.prepare(`SELECT DISTINCT t.id, t.title, ${REPO} AS repo FROM task_events e JOIN tasks t ON t.id = e.task_id

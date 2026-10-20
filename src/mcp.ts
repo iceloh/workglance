@@ -67,8 +67,11 @@ function build(db: Db): McpServer {
       const w = a._workglance as { session_id?: string } | undefined;
       return reply(searchHistory(db, String(a.query), Number(a.limit ?? 8), w?.session_id ?? null));
     });
-  s.tool("list_tasks", "The user's workglance board (the cards, W-1, W-2, …): open tasks of this tab, and open tasks in this worktree that you could take.",
-    { _workglance: stampArg }, handler(db, "list_tasks"));
+  s.tool("list_tasks", "The user's workglance board (the cards, W-1, W-2, …): open tasks of this tab, and open tasks in this worktree that you could take. With all=true: the open tasks of every repo, grouped by repo, with the folder of each (which projects are active, work to do in another repo).",
+    {
+      all: z.boolean().default(false).describe("true = every repo on this machine, not just this tab and worktree"),
+      _workglance: stampArg,
+    }, handler(db, "list_tasks"));
   return s;
 }
 

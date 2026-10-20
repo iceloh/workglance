@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "./db.ts";
-import { createTask, sessionTasks, snapshotText, takeTask, TaskError, taskForCommit, updateTask } from "./tasks.ts";
+import { createTask, openTasksByRepo, sessionTasks, snapshotText, takeTask, TaskError, taskForCommit, updateTask } from "./tasks.ts";
 
 const A = { session_id: "tab-a", cwd: "C:\\dev\\shop" };
 const B = { session_id: "tab-b", cwd: "C:\\dev\\shop" };
@@ -105,4 +105,20 @@ test("claimCommits: the agent's word beats the focus rule; bad SHAs are refused"
   linkCommitsToTasks(db);
   assert.equal((db.prepare("SELECT task_id FROM commits").get() as any).task_id, a.id, "claimed by short SHA");
   assert.throws(() => claimCommits(db, a.id, ["not-a-sha"]), /not a commit SHA/);
+});
+
+test("openTasksByRepo: open cards of every repo, most open first; closed ones left out", () => {
+  const db = openDb(":memory:");
+  const api = { repo: "C:\\dev\\api", worktree: "C:\\dev\\api", branch: "main" };
+  createTask(db, A, where, { title: "Fix cart", type: "bug" });
+  createTask(db, A, where, { title: "Plan promo", type: "feature", start_now: false });
+  const done = createTask(db, B, api, { title: "Old work", type: "chore" });
+  updateTask(db, B, "agent", { id: done.id, status: "done", note: "ok" });
+  createTask(db, B, api, { title: "Add auth", type: "feature" });
+  createTask(db, B, { repo: null, worktree: null, branch: null }, { title: "Loose", type: "chore" });
+  const by = openTasksByRepo(db);
+  assert.deepEqual(by.map((g) => [g.repo, g.tasks.map((t) => t.title).sort()]), [
+    ["shop", ["Fix cart", "Plan promo"]], ["api", ["Add auth"]], ["other", ["Loose"]],
+  ]);
+  assert.equal(by[0].tasks[0].worktree, "C:\\dev\\shop", "where to go to work on it");
 });

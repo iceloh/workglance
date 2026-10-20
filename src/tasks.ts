@@ -18,6 +18,9 @@ export type Task = {
 
 export const ref = (id: number) => `W-${id}`;
 
+// The repo a card belongs to, by name: the repos table, else the folder's last part, else "other". SQL, on `tasks t`.
+export const REPO_NAME = `COALESCE((SELECT r.name FROM repos r WHERE r.id = t.repo), NULLIF(replace(replace(t.repo, rtrim(t.repo, replace(replace(t.repo, '\\', ''), '/', '')), ''), '/', ''), ''), 'other')`;
+
 export class TaskError extends Error {}
 
 const now = () => new Date().toISOString();
@@ -152,6 +155,15 @@ export function sessionTasks(db: Db, sessionId: string): Task[] {
 /** Open tasks in a worktree that no tab is on right now, e.g. planned earlier for later. */
 export function worktreeTasks(db: Db, worktree: string): Task[] {
   return db.prepare(`SELECT * FROM tasks WHERE worktree = ? AND status IN ('planned','in_progress','testing') ORDER BY updated_at DESC LIMIT 20`).all(worktree) as Task[];
+}
+
+/** Every open task on the machine, by repo (most open cards first): what the user has going on, and where. */
+export function openTasksByRepo(db: Db): { repo: string; tasks: Task[] }[] {
+  const rows = db.prepare(`SELECT t.*, ${REPO_NAME} AS repo_name FROM tasks t
+    WHERE t.status IN ('planned','in_progress','testing') ORDER BY t.updated_at DESC`).all() as (Task & { repo_name: string })[];
+  const by = new Map<string, Task[]>();
+  for (const { repo_name, ...t } of rows) (by.get(repo_name) ?? by.set(repo_name, []).get(repo_name)!).push(t);
+  return [...by].map(([repo, tasks]) => ({ repo, tasks })).sort((a, b) => b.tasks.length - a.tasks.length || a.repo.localeCompare(b.repo));
 }
 
 /** The compact list the agent sees on every prompt. Plain data; the agent is told it is not instructions. */
