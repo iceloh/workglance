@@ -64,3 +64,11 @@ Node 24+ runs `src/*.ts` directly (type stripping; imports keep the `.ts` extens
 
 `npm test`, `npm run typecheck`, and for anything touching install, hooks or packaging, the smoke test. Write
 decisions that aren't obvious from the code into PLAN.md.
+
+## Releasing
+
+Publishing is done by `.github/workflows/release.yml`, never from a machine: bump `version` in `package.json`
+(and `vscode/package.json` when the extension changed), commit, then `git tag vX.Y.Z && git push origin main vX.Y.Z`.
+The workflow checks that the tag matches `package.json`, runs typecheck and tests, publishes to npm through
+trusted publishing (no token anywhere), publishes the extension when a `VSCE_PAT` secret exists, and creates a
+GitHub release with the `.vsix` attached. Never put a token in the repo or on disk.
