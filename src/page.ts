@@ -296,7 +296,7 @@ for(const col of document.querySelectorAll(".col[data-status]")){
   col.addEventListener("drop",(e)=>{e.preventDefault();col.classList.remove("over");if(dragging)moveTo(Number(dragging.dataset.id),col.dataset.status,dragging.dataset.status)});
 }
 ${BOARD_JS}
-</script>`);
+</script>`, v.live.filter((t) => t.live === "question" || t.live === "permission").length);
 }
 
 /**
@@ -430,7 +430,9 @@ a{color:inherit}h1 a{text-decoration:none}.card h3 a{text-decoration:none}.card 
 .tl.event:before{background:var(--accent)}.tl.commit:before{background:var(--done)}.when{color:var(--muted);font-size:12px;margin-right:8px}.who{font-weight:600;margin-right:6px}.tl.prompt{color:var(--muted)}
 `;
 
-function shell(title: string, body: string): string {
+/** `needsYou`: tabs waiting for an answer or a permission. The browser tab says so: "(2) …" and an orange dot. */
+function shell(title: string, body: string, needsYou = 0): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title><style>${CSS}</style></head><body>${body}</body></html>`;
+<link rel="icon" type="image/svg+xml" href="/favicon.svg${needsYou ? "?needs=1" : ""}">
+<title>${needsYou ? `(${needsYou}) ` : ""}${esc(title)}</title><style>${CSS}</style></head><body>${body}</body></html>`;
 }

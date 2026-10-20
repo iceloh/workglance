@@ -100,8 +100,33 @@ function windowLoop(context) {
   })();
 }
 
+// The extension is only a window: the engine (hooks, server, board) comes from `npx workglance install`.
+// Without it there is nothing to show, so say so and offer to install it, instead of a silent dead icon.
+const README = "https://github.com/iceloh/workglance#readme";
+const isInstalled = () => !!installInfo();
+
+function installEngine() {
+  const t = vscode.window.createTerminal({ name: "Workglance install" });
+  t.show();
+  t.sendText("npx --yes workglance@latest install");
+}
+
+let asked = false;
+async function offerInstall(context, force = false) {
+  if (asked && !force) return;
+  if (!force && context.globalState.get("workglance.dontAskInstall")) return;
+  asked = true;
+  const pick = await vscode.window.showInformationMessage(
+    "Workglance isn't installed on this machine yet. The extension shows its board of what your AI coding tabs did; the board itself comes from a small local tool (needs Node.js 24+).",
+    "Install now", "What is it?", "Don't ask again");
+  if (pick === "Install now") installEngine();
+  else if (pick === "What is it?") vscode.env.openExternal(vscode.Uri.parse(README));
+  else if (pick === "Don't ask again") context.globalState.update("workglance.dontAskInstall", true);
+}
+
 let panel = null;
 function openBoard(context) {
+  if (!isInstalled()) { offerInstall(context, true); return; }
   if (panel) { panel.reveal(); return; }
   panel = vscode.window.createWebviewPanel("workglance.board", "Workglance", vscode.ViewColumn.Beside, { enableScripts: true, retainContextWhenHidden: true });
   // The board itself is served by the local server; links that open a Claude tab are relayed to us.
@@ -122,13 +147,31 @@ function activate(context) {
   bar.show();
   context.subscriptions.push(bar,
     vscode.commands.registerCommand("workglance.openBoard", () => openBoard(context)),
-    vscode.commands.registerCommand("workglance.openInBrowser", () => vscode.env.openExternal(vscode.Uri.parse(base()))));
+    vscode.commands.registerCommand("workglance.openInBrowser", () => vscode.env.openExternal(vscode.Uri.parse(base()))),
+    vscode.commands.registerCommand("workglance.install", installEngine));
 
   windowLoop(context);
 
   const notified = new Map(); // session -> the live status we already notified about
   let failures = 0;
+  let wasInstalled = isInstalled();
   const tick = async () => {
+    const installed = isInstalled();
+    if (!installed) {
+      bar.text = "$(cloud-download) Install Workglance";
+      bar.tooltip = "Workglance isn't installed on this machine yet. Click to install it.";
+      bar.command = "workglance.install";
+      bar.backgroundColor = undefined;
+      offerInstall(context);
+      wasInstalled = false;
+      return;
+    }
+    bar.command = "workglance.openBoard";
+    if (!wasInstalled) {
+      wasInstalled = true;
+      vscode.window.showInformationMessage("Workglance is installed. Restart your Claude Code tabs (or run /mcp in them) so they get its tools.", "Open board")
+        .then((pick) => { if (pick) openBoard(context); });
+    }
     try {
       const s = await getJson("/api/status");
       failures = 0;

@@ -1,3 +1,5 @@
+<img src="docs/img/icon.png" alt="" width="72" align="right">
+
 # Workglance
 
 **What every AI coding tab did, across every repo.** A task board your Claude Code agents keep themselves,

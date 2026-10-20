@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { openDb, WORKGLANCE_HOME } from "./db.ts";
 import { appFile } from "./paths.ts";
+import { iconSvg } from "./icon.ts";
 import { allStates } from "./state.ts";
 import { TaskError, userComment, userMove, type TaskStatus } from "./tasks.ts";
 import { scan } from "./scan.ts";
@@ -194,6 +195,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method !== "GET") { res.writeHead(405).end(); return; }
 
+  if (url.pathname === "/favicon.svg" || url.pathname === "/favicon.ico") {
+    res.writeHead(200, { "content-type": "image/svg+xml", "cache-control": "max-age=300" }).end(iconSvg(url.searchParams.get("needs") === "1"));
+    return;
+  }
   if (url.pathname === "/settings") {
     const html = renderSettingsPage(untrackedFolders());
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" }).end(html);
