@@ -4,10 +4,20 @@ Thanks for looking. Workglance is small on purpose: one Node process, one SQLite
 it from source. Working with an AI agent? It should read [AGENTS.md](AGENTS.md) first (Claude Code does, through
 `CLAUDE.md`): the rules below plus a map of the code and the traps we already fell into.
 
+## How a change gets in
+
+1. For anything bigger than a small fix, open an issue first and say what you want to change: it saves
+   you writing code that goes another way.
+2. Fork the repo on GitHub, then work on a branch in your fork.
+3. Open a pull request against `main`. CI runs the tests and the smoke test on Windows, macOS and Linux
+   (on your first pull request, a maintainer approves the run).
+4. A maintainer reviews and merges it. Releases are cut separately, from a version tag; a merge never
+   publishes anything by itself.
+
 ## Setup
 
 ```sh
-git clone https://github.com/iceloh/workglance && cd workglance
+git clone https://github.com/<you>/workglance && cd workglance   # your fork
 npm install
 npm test            # node:test, no database or network needed
 npm run typecheck
