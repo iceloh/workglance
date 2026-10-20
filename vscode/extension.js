@@ -187,6 +187,12 @@ function activate(context) {
         s.attention ? `\n${s.attention} item(s) need attention (stuck tasks, stale worktrees)` : "",
       ].filter(Boolean).join("\n") || "No tracked tabs";
       if (!vscode.workspace.getConfiguration("workglance").get("notifications")) return;
+      // A new scheduled digest: say so once, in the window you're using (every window polls).
+      if (s.digest && s.digest.unread && vscode.window.state.focused && context.globalState.get("workglance.digestNotified") !== s.digest.id) {
+        context.globalState.update("workglance.digestNotified", s.digest.id);
+        vscode.window.showInformationMessage("Your Workglance digest is ready: everything since the previous one.", "Open digest")
+          .then((pick) => { if (pick) vscode.env.openExternal(vscode.Uri.parse(base() + "/digest")); });
+      }
       for (const t of s.live) {
         const key = `${t.live}@${t.since}`;
         if (notified.get(t.id) === key) continue;

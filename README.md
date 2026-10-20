@@ -28,7 +28,7 @@ on your machine, without you writing anything down.
 - **Review inside the card.** See the card's diff, comment on lines, send the review to the tab.
 - **Shared work memory.** Agents can search what any tab already did (`search_history`) before starting
   something that may have been done or investigated before.
-- **And:** cost per card at API list prices, full-text search, a daily digest, "needs attention" for
+- **And:** cost per card at API list prices, full-text search, a digest at the times you choose, "needs attention" for
   stuck work and forgotten worktrees, metrics on how well the agents keep the board.
 
 ![A card: tabs, CI, the user's comment waiting for the tab, the timeline of events and commits](docs/img/card.png)
@@ -116,7 +116,9 @@ Agents only ever see search results and card titles as data, never as instructio
   "port": 4477,
   "ignore": ["~/experiments"],
   "bitbucketNetrc": "~/.secrets/bitbucket.netrc",
-  "prices": { "claude-new-model": { "input": 3, "output": 15 } }
+  "prices": { "claude-new-model": { "input": 3, "output": 15 } },
+  "digestTimes": ["08:00", "13:00", "18:00"],
+  "digestSummary": true
 }
 ```
 
@@ -125,6 +127,9 @@ Agents only ever see search results and card titles as data, never as instructio
 - `bitbucketNetrc`: a netrc file with Bitbucket API credentials, for CI status on cards from Bitbucket
   Pipelines. GitHub Actions needs nothing here: Workglance uses `GH_TOKEN`/`GITHUB_TOKEN` or your `gh` login,
   and without a token still reads public repos (checked less often, GitHub allows 60 calls an hour).
+- `digestTimes`: when the **digest** is written (default `08:00`; several a day are fine). Each one covers
+  everything since the previous one; a VS Code notification says when it's ready. Also editable in Settings.
+- `digestSummary`: have `claude -p` write the digest's summary paragraph right away (default `true`).
 - `prices`: $ per million tokens for models missing from (or priced differently than) the built-in table.
   `workglance doctor` lists any model in use that has no price; its cost is left out, never guessed.
 

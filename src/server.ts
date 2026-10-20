@@ -13,17 +13,18 @@ import { scan } from "./scan.ts";
 import { replayFailedCalls } from "./replay.ts";
 import { loadConfig } from "./config.ts";
 import { boardStats, liveTabs, taskCards, taskDetail, tabs, undone } from "./report.ts";
-import { openTabUrl, renderDigestPage, renderPage, renderSearchPage, renderTaskPage } from "./page.ts";
+import { openTabUrl, renderDigestPage, renderPage, renderSearchPage, renderTaskPage, setDigestUnread } from "./page.ts";
 import { attention } from "./attention.ts";
 import { search } from "./search.ts";
-import { digest, digestText, summarize, todayLocal } from "./digest.ts";
+import { digest, digestBetween, digestText, summarize, todayLocal } from "./digest.ts";
+import { getRun, latestRun, markRunRead, neighbours, parseTimes, runDueDigest, setRunSummary, type DigestRun } from "./daily.ts";
 import { redact } from "./redact.ts";
 import { backupIfDue } from "./ops.ts";
 import { metrics } from "./metrics.ts";
 import { renderMetricsPage, renderSettingsPage } from "./page.ts";
 import { dismiss } from "./attention.ts";
 import { retrack, untrack } from "./untrack.ts";
-import { untrackedFolders } from "./config.ts";
+import { setConfig, untrackedFolders } from "./config.ts";
 
 /** The latest eval run (from `workglance eval`), if any. */
 function latestEvals(): { at: string; model: string; results: { name: string; pass: boolean; failures: string[]; warnings: string[]; costUsd: number }[] } | null {
@@ -77,6 +78,53 @@ function refreshGit(): void {
   w.once("exit", () => { gitRunning = false; version++; });
 }
 
+const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+
+/** The Digest page: a scheduled digest (the latest by default, ?id= for another), or a calendar day (?date=). */
+function digestPage(url: URL): string {
+  const dateParam = url.searchParams.get("date") ?? "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+    const date = dateParam;
+    const shift = (days: number) => { const [y, m, d] = date.split("-").map(Number); return todayLocal(new Date(y!, m! - 1, d! + days)); };
+    const summary = (db.prepare("SELECT value FROM meta WHERE key = ?").get(`digest_summary:${date}`) as { value: string } | undefined)?.value ?? null;
+    return renderDigestPage(digest(db, date), summary, { heading: `Day ${date}`, window: "calendar day, midnight to midnight",
+      prev: `/digest?date=${shift(-1)}`, next: date < todayLocal() ? `/digest?date=${shift(1)}` : null, summarize: { date } });
+  }
+  const run = url.searchParams.get("id") ? getRun(db, url.searchParams.get("id")!) : latestRun(db);
+  if (!run) {
+    // Before the first scheduled digest: a preview of the last 24 hours, and when the first one comes.
+    const now = new Date(), from = new Date(now.getTime() - 86400_000).toISOString();
+    const times = loadConfig().digestTimes;
+    const next = times.map((t) => { const [h, m] = t.split(":").map(Number); const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h!, m!); if (d <= now) d.setDate(d.getDate() + 1); return d; }).sort((a, b) => +a - +b)[0]!;
+    return renderDigestPage(digestBetween(db, from, now.toISOString(), null), null, { heading: "Digest preview", window: `last 24 hours`,
+      note: `the first scheduled digest comes ${when(next.toISOString())}`, prev: null, next: null, summarize: { date: todayLocal() } });
+  }
+  markRunRead(db, run.id);
+  setDigestUnread(false);
+  const n = neighbours(db, run);
+  return renderDigestPage(digestBetween(db, run.from, run.to, null), run.summary, { heading: `Digest · ${when(run.to)}`,
+    window: `${when(run.from)} → ${when(run.to)}`, prev: n.prev ? `/digest?id=${encodeURIComponent(n.prev)}` : null,
+    next: n.next ? `/digest?id=${encodeURIComponent(n.next)}` : null, summarize: { id: run.id } });
+}
+
+/** The written paragraph for a scheduled digest (claude -p, redacted input), stored with it. */
+async function writeRunSummary(run: DigestRun): Promise<string> {
+  const text = await summarize(redact(digestText(digestBetween(db, run.from, run.to, null))));
+  setRunSummary(db, run.id, text);
+  version++;
+  return text;
+}
+
+/** At each configured time: write the digest since the previous one (config is re-read: Settings apply at once). */
+function digestTick(): void {
+  const cfg = loadConfig();
+  const run = runDueDigest(db, cfg.digestTimes);
+  if (!run) return;
+  console.log(`digest ${run.id}`);
+  version++;
+  if (cfg.digestSummary) writeRunSummary(run).catch((e) => console.error("digest summary:", e instanceof Error ? e.message : e));
+}
+
 /** From the hooks' per-session state files: how many tabs are tracked and how many nudges were sent. */
 function hookHealth(): { tracked: number; nudges: number } {
   let tracked = 0, nudges = 0;
@@ -115,6 +163,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  setDigestUnread(!!latestRun(db) && !latestRun(db)!.readAt);
   if (url.pathname === "/mcp") {
     handleMcp(db, req, res).catch((e) => {
       console.error("mcp:", e instanceof Error ? e.message : e);
@@ -171,12 +220,28 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/api/digest/summary") {
     if (req.method !== "POST" || !String(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(405).end(); return; }
     readJson(req).then(async (body) => {
+      if (body.id !== undefined) {
+        const run = getRun(db, String(body.id));
+        if (!run) throw new TaskError("no such digest");
+        const text = await writeRunSummary(run);
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ summary: text }));
+        return;
+      }
       const date = String(body.date ?? "");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new TaskError("bad date");
       const text = await summarize(redact(digestText(digest(db, date))));
       db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)").run(`digest_summary:${date}`, text);
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ summary: text }));
     }).catch((e) => res.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ error: e instanceof Error ? e.message : "failed" })));
+    return;
+  }
+  if (url.pathname === "/api/settings/digest") {
+    if (req.method !== "POST" || !String(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(405).end(); return; }
+    readJson(req).then((body) => {
+      const times = parseTimes(body.times);
+      setConfig({ digestTimes: times, digestSummary: body.summary !== false });
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ times, summary: body.summary !== false }));
+    }).catch(() => res.writeHead(400).end());
     return;
   }
   if (url.pathname === "/api/windows/wait" || url.pathname === "/api/open") {
@@ -200,7 +265,8 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url.pathname === "/settings") {
-    const html = renderSettingsPage(untrackedFolders());
+    const c = loadConfig();
+    const html = renderSettingsPage(untrackedFolders(), { times: c.digestTimes, summary: c.digestSummary });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" }).end(html);
     return;
   }
@@ -219,10 +285,7 @@ const server = http.createServer((req, res) => {
       const titles = new Map((db.prepare("SELECT id, title FROM sessions").all() as { id: string; title: string | null }[]).map((s) => [s.id, s.title]));
       html = renderSearchPage(q, search(db, q), titles);
     } else {
-      const date = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get("date") ?? "") ? url.searchParams.get("date")! : todayLocal();
-      const shift = (days: number) => { const [y, m, d] = date.split("-").map(Number); return todayLocal(new Date(y!, m! - 1, d! + days)); };
-      const summary = (db.prepare("SELECT value FROM meta WHERE key = ?").get(`digest_summary:${date}`) as { value: string } | undefined)?.value ?? null;
-      html = renderDigestPage(digest(db, date), summary, shift(-1), date < todayLocal() ? shift(1) : null);
+      html = digestPage(url);
     }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" }).end(html);
     return;
@@ -240,6 +303,7 @@ const server = http.createServer((req, res) => {
       working: live.filter((t) => t.live === "working").length,
       tasks: { in_progress: count("in_progress").n, testing: count("testing").n, planned: count("planned").n },
       attention: attention(db, cfg, allStates()).length,
+      digest: (() => { const r = latestRun(db); return r ? { id: r.id, to: r.to, unread: !r.readAt } : null; })(),
     }));
     return;
   }
@@ -286,6 +350,7 @@ server.listen(cfg.port, "127.0.0.1", () => {
   const tick = () => {
     try { catchUp(); } catch (e) { console.error("catch-up:", e instanceof Error ? e.message : e); }
     try { const b = backupIfDue(db, todayLocal()); if (b) console.log(`backup ${b}`); } catch (e) { console.error("backup:", e instanceof Error ? e.message : e); }
+    try { digestTick(); } catch (e) { console.error("digest:", e instanceof Error ? e.message : e); }
   };
   tick();
   setInterval(tick, 60_000).unref();

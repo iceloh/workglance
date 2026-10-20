@@ -153,7 +153,7 @@ export function money(c: CostSummary): string {
 
 function topNav(active: string, extra = ""): string {
   const link = (href: string, key: string, label: string) => `<a href="${href}" class="${active === key ? "on" : ""}">${label}</a>`;
-  return `<div class="top"><h1><a href="/">Workglance</a></h1><nav class="ranges">${link("/", "board", "Board")}${link("/digest", "digest", "Digest")}${link("/metrics", "metrics", "Metrics")}${link("/settings", "settings", "Settings")}</nav>
+  return `<div class="top"><h1><a href="/">Workglance</a></h1><nav class="ranges">${link("/", "board", "Board")}${link("/digest", "digest", digestUnread ? `Digest <span class="newdot" title="A new digest is ready"></span>` : "Digest")}${link("/metrics", "metrics", "Metrics")}${link("/settings", "settings", "Settings")}</nav>
 <form action="/search" class="searchform"><input name="q" placeholder="Search everything: prompts, tasks, results, commits…" autocomplete="off"></form>${extra}</div>`;
 }
 
@@ -167,14 +167,21 @@ function attentionPanel(items: Attention[]): string {
     </span></div>`).join("")}${items.length > 12 ? `<div class="muted small">… ${items.length - 12} more</div>` : ""}</div>`;
 }
 
-export function renderSettingsPage(untracked: string[]): string {
+export function renderSettingsPage(untracked: string[], digest: { times: string[]; summary: boolean } = { times: ["08:00"], summary: true }): string {
   return shell("Settings", `${topNav("settings")}<main class="detail">
+<h2>Digest</h2>
+<p class="muted">At each of these times Workglance writes a digest of everything since the previous one: what got done, what waits for you, commits, model work. Several times a day are fine (e.g. <code>08:00, 13:00, 18:00</code>); if the computer was off, one digest covers the whole gap.</p>
+<form class="comment" onsubmit="return saveDigest(this)"><input name="times" value="${esc(digest.times.join(", "))}" placeholder="08:00, 13:00, 18:00" required>
+<label class="muted small"><input type="checkbox" name="summary"${digest.summary ? " checked" : ""}> also a written summary by <code>claude -p</code> (your subscription)</label>
+<button class="btn">Save</button></form>
 <h2>Untracked folders</h2>
 <p class="muted">Workglance doesn't look at these: tabs working there get no protocol, cards or nudges, nothing from them is stored, and no git command runs there.</p>
 ${untracked.length ? `<table>${untracked.map((p) => `<tr><td><code>${esc(p)}</code></td><td><button class="mini" data-path="${esc(p)}" onclick="retrackPath(this)">Track again</button></td></tr>`).join("")}</table>` : `<div class="muted">None.</div>`}
 <form class="comment" onsubmit="return untrackTyped(this)"><input name="path" placeholder="C:/dev/some-repo" required><button class="btn">Untrack folder</button></form>
 </main><script>${BOARD_JS}
-function untrackTyped(f){const v=f.path.value.trim();if(v)post("/api/untrack",{path:v});return false}</script>`);
+function untrackTyped(f){const v=f.path.value.trim();if(v)post("/api/untrack",{path:v});return false}
+async function saveDigest(f){const r=await fetch("/api/settings/digest",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({times:f.times.value,summary:f.summary.checked})});
+  const j=await r.json().catch(()=>({}));if(r.ok){f.times.value=j.times.join(", ");alert("Saved: digests at "+j.times.join(", "))}else alert(j.error||"Could not save");return false}</script>`);
 }
 
 export function renderSearchPage(q: string, hits: Hit[], titles: Map<string, string | null>): string {
@@ -214,24 +221,40 @@ ${stat("cards created", String(m.tasks.created), `${m.tasks.done} closed`)}
 </main>`);
 }
 
-export function renderDigestPage(d: Digest, summary: string | null, prevDate: string, nextDate: string | null): string {
+/** How a digest page is labelled and navigated: a scheduled digest (previous slot -> this one) or a calendar day. */
+export type DigestView = {
+  heading: string; window: string; prev: string | null; next: string | null;
+  /** What "Summarize with Claude" posts to /api/digest/summary: {id} for a scheduled digest, {date} for a day. */
+  summarize: Record<string, string>; note?: string;
+};
+
+export function renderDigestPage(d: Digest, summary: string | null, v: DigestView): string {
   const list = (items: { id: number; title: string }[]) => items.length ? `<ul>${items.map((t) => `<li><a href="/task/${t.id}"><span class="muted">W-${t.id}</span> ${esc(t.title)}</a></li>`).join("")}</ul>` : `<div class="muted">—</div>`;
-  return shell(`Digest ${d.date}`, `${topNav("digest")}<main class="detail">
-<h2>Digest · ${esc(d.date)} <span class="small"><a href="/digest?date=${prevDate}">← previous</a>${nextDate ? ` · <a href="/digest?date=${nextDate}">next →</a>` : ""}</span></h2>
-<div class="pre" id="summary">${summary ? esc(summary) : `<button class="btn" onclick="summarize('${esc(d.date)}')">Summarize with Claude</button> <span class="muted small">runs <code>claude -p</code> once on your subscription; nothing is sent anywhere else</span>`}</div>
+  return shell(v.heading, `${topNav("digest")}<main class="detail">
+<h2>${esc(v.heading)} <span class="small">${v.prev ? `<a href="${esc(v.prev)}">← previous</a>` : ""}${v.prev && v.next ? " · " : ""}${v.next ? `<a href="${esc(v.next)}">next →</a>` : ""}</span></h2>
+<p class="muted">${esc(v.window)}${v.note ? ` · ${esc(v.note)}` : ""}</p>
+<div class="pre" id="summary">${summary ? esc(summary) : `<button class="btn" onclick='summarize(${esc(JSON.stringify(v.summarize))})'>Summarize with Claude</button> <span class="muted small">runs <code>claude -p</code> once on your subscription; nothing is sent anywhere else</span>`}</div>
 <h3>Done (${d.closed.length})</h3>${d.closed.length ? `<ul>${d.closed.map((t) => `<li><a href="/task/${t.id}"><span class="muted">W-${t.id}</span> ${esc(t.title)}</a> <span class="chip type">${esc(t.type)}</span>${t.result ? `<div class="muted small">${esc(t.result.slice(0, 300))}</div>` : ""}</li>`).join("")}</ul>` : `<div class="muted">—</div>`}
+<h3>Waiting for you to verify (${d.testingNow.length})</h3>${list(d.testingNow)}
 <h3>Moved to testing (${d.toTesting.length})</h3>${list(d.toTesting)}
 <h3>Started (${d.started.length})</h3>${list(d.started)}
 <h3>New cards (${d.created.length})</h3>${list(d.created)}
 <h3>Commits</h3>${d.commits.length ? `<p>${d.commits.map((c) => `${esc(c.repo)} <b>${c.n}</b>`).join(" · ")}</p>` : `<div class="muted">—</div>`}
 <h3>Tabs · model work ${money(d.total) || "—"} <span class="muted small">(API list prices; on a subscription this is effort, not your bill)</span></h3>
 ${d.tabs.length ? `<table>${d.tabs.map((t) => `<tr><td><a href="${openTabUrl(t.id)}">${esc(t.title ?? t.id.slice(0, 8))}</a></td><td>${t.prompts} prompts</td><td>${money(t.cost)}</td></tr>`).join("")}</table>` : `<div class="muted">No activity.</div>`}
+<p class="muted small">Digests are written at the times set in <a href="/settings">Settings</a>; each one covers everything since the previous one. <a href="/digest?date=${todayISO()}">Calendar days →</a></p>
 </main>
 <script>${BOARD_JS}
-async function summarize(date){const box=document.getElementById("summary");box.textContent="Asking Claude… (up to a minute)";
-  const r=await fetch("/api/digest/summary",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({date})});
+async function summarize(body){const box=document.getElementById("summary");box.textContent="Asking Claude… (up to a minute)";
+  const r=await fetch("/api/digest/summary",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));box.textContent=r.ok?j.summary:("Could not summarize: "+(j.error||r.status))}</script>`);
 }
+
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+
+/** A digest that hasn't been opened yet puts a dot on the Digest link (set by the server before rendering). */
+let digestUnread = false;
+export function setDigestUnread(v: boolean): void { digestUnread = v; }
 
 const LIVE: Record<string, string> = { permission: "needs permission", question: "asked you", working: "working", done: "your turn" };
 /** Opens that exact session in the Claude Code VS Code extension (its own vscode:// handler). */
@@ -370,6 +393,7 @@ const CSS = `
 .ministats .mlabel{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-right:2px}
 .mstat b{font-size:14px;margin-right:4px;font-variant-numeric:tabular-nums}.mstat span{color:var(--muted)}.mstat b .est{color:var(--text)}
 @media (max-width:1000px){.layout{display:block}.rail{position:static;max-height:none;padding:12px 20px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.rail h4{margin:0 4px 0 0}.rgroup{display:contents}.rgroup h5,.rstate{display:none}.rtab{display:inline-flex;gap:6px;border:1px solid var(--line);background:var(--card);padding:4px 10px;border-radius:999px}}
+.newdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#f97316;vertical-align:2px;margin-left:2px}
 #tabdlg{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--text);padding:22px 24px;width:min(460px,calc(100vw - 32px));box-shadow:0 20px 60px rgba(0,0,0,.45)}
 #tabdlg::backdrop{background:rgba(10,12,16,.55);backdrop-filter:blur(2px)}
 #tabdlg h3{margin:0 0 8px;font-size:16px}#tabdlg p{margin:0 0 10px;color:var(--muted);line-height:1.5;font-size:13px}

@@ -8,7 +8,8 @@ import type { Db } from "./db.ts";
 import { costBetween, type CostSummary } from "./cost.ts";
 
 export type Digest = {
-  date: string; from: string; to: string;
+  /** "2026-10-20" for a calendar day; null for a scheduled digest (previous slot -> this slot). */
+  date: string | null; from: string; to: string;
   closed: { id: number; title: string; type: string; result: string | null }[];
   toTesting: { id: number; title: string }[];
   started: { id: number; title: string }[];
@@ -16,6 +17,8 @@ export type Digest = {
   commits: { repo: string; n: number }[];
   tabs: { id: string; title: string | null; prompts: number; cost: CostSummary }[];
   total: CostSummary;
+  /** Cards waiting in testing right now: what needs your eyes. */
+  testingNow: { id: number; title: string }[];
 };
 
 /** Local-day bounds as ISO instants (the day the user lives in, not UTC). */
@@ -32,6 +35,10 @@ export function todayLocal(now = new Date()): string {
 
 export function digest(db: Db, date: string): Digest {
   const { from, to } = dayBounds(date);
+  return digestBetween(db, from, to, date);
+}
+
+export function digestBetween(db: Db, from: string, to: string, date: string | null): Digest {
   const ev = (cond: string) => db.prepare(`SELECT DISTINCT t.id, t.title FROM task_events e JOIN tasks t ON t.id = e.task_id
     WHERE e.at >= ? AND e.at < ? AND ${cond} ORDER BY t.id`).all(from, to) as { id: number; title: string }[];
   const tabs = db.prepare(`SELECT s.id, s.title, count(p.uuid) AS prompts FROM prompts p JOIN sessions s ON s.id = p.session_id
@@ -48,16 +55,18 @@ export function digest(db: Db, date: string): Digest {
       WHERE c.at >= ? AND c.at < ? GROUP BY 1 ORDER BY n DESC`).all(from, to) as any[],
     tabs: withCost,
     total: costBetween(db, allTabs, from, to),
+    testingNow: db.prepare("SELECT id, title FROM tasks WHERE status = 'testing' ORDER BY updated_at").all() as { id: number; title: string }[],
   };
 }
 
 /** Plain text of the digest: what the optional summary is written from (and what a share/export would carry). */
 export function digestText(d: Digest): string {
-  const l: string[] = [`Day ${d.date}`];
+  const l: string[] = [d.date ? `Day ${d.date}` : `Since ${new Date(d.from).toLocaleString("en-GB")}`];
   if (d.closed.length) l.push("Done:", ...d.closed.map((t) => `- W-${t.id} (${t.type}) ${t.title}${t.result ? ` — ${t.result.replace(/\s+/g, " ").slice(0, 300)}` : ""}`));
   if (d.toTesting.length) l.push("Moved to testing:", ...d.toTesting.map((t) => `- W-${t.id} ${t.title}`));
   if (d.started.length) l.push("Started:", ...d.started.map((t) => `- W-${t.id} ${t.title}`));
   if (d.commits.length) l.push(`Commits: ${d.commits.map((c) => `${c.repo} ${c.n}`).join(", ")}`);
+  if (d.testingNow.length) l.push("Waiting for the user to verify (in testing):", ...d.testingNow.map((t) => `- W-${t.id} ${t.title}`));
   if (d.tabs.length) l.push("Tabs:", ...d.tabs.map((t) => `- ${t.title ?? t.id.slice(0, 8)}: ${t.prompts} prompts, ~$${t.cost.usd.toFixed(2)}`));
   return l.join("\n");
 }
@@ -77,7 +86,7 @@ export function proseOnly(out: string): string {
 
 export function summarize(text: string, timeoutMs = 120_000): Promise<string> {
   return new Promise((resolve, reject) => {
-    const prompt = `Summarize this developer's day in 4-6 sentences: what shipped, what is waiting for verification, and what deserves attention tomorrow. Use the same language the task titles mostly use. Plain text, no headings.\n\n${text}`;
+    const prompt = `Summarize this developer's work in this period in 4-6 sentences: what shipped, what is waiting for verification, and what deserves attention next. Use the same language the task titles mostly use. Plain text, no headings.\n\n${text}`;
     const cwd = mkdtempSync(join(tmpdir(), "wt-digest-"));
     // The text goes in through stdin, never on the command line: on Windows `claude` is a .cmd run by
     // cmd.exe, which would read a prompt's & or | as its own syntax.

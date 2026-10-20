@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { WORKGLANCE_HOME, CLAUDE_PROJECTS, DB_FILE } from "./paths.ts";
+import { ensureDigestTable } from "./daily.ts";
 
 export { WORKGLANCE_HOME, CLAUDE_PROJECTS };
 
@@ -26,6 +27,7 @@ export function openDb(file = join(WORKGLANCE_HOME, DB_FILE)): Db {
   // an older parser than its own. No global "migrate" flag: twice an old server's worker ran the new
   // migration while the old server re-read everything with the old parser, losing the re-read.
   addColumn(db, "files", "parser_version", "INTEGER NOT NULL DEFAULT 3");
+  ensureDigestTable(db);
   // "These commits are this task's": the agent's own word, used before any timing rule (see linkCommitsToTasks).
   db.exec("CREATE TABLE IF NOT EXISTS commit_claims (sha TEXT PRIMARY KEY, task_id INTEGER NOT NULL, at TEXT NOT NULL)");
   return db;
