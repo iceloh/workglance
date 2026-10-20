@@ -1,7 +1,41 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { costOf, priceFor } from "./cost.ts";
-import { parseRecord } from "./transcript.ts";
+import { costByRepo, costOf, priceFor, repoCosts, repoOfDir } from "./cost.ts";
+import { openDb } from "./db.ts";
+import { normalizeDir, parseRecord } from "./transcript.ts";
+
+test("repoOfDir: a deleted worktree inside a repo counts for it; a nested repo keeps its own; no repo above: none", () => {
+  const [shop, lib, dev] = ["C:\\dev\\shop", "C:\\dev\\shop\\vendor\\lib", "C:\\dev"].map(normalizeDir);
+  const m = new Map([[shop, "shop"], [lib, "lib"]]);
+  assert.equal(repoOfDir(m, normalizeDir("C:\\dev\\shop\\.claude\\worktrees\\fix-cart\\src")), "shop");
+  assert.equal(repoOfDir(m, normalizeDir("C:\\dev\\shop\\vendor\\lib\\src")), "lib");
+  assert.equal(repoOfDir(m, dev), undefined);
+});
+
+test("costByRepo: each response goes to the repo of the folder its prompt came from", () => {
+  const db = openDb(":memory:");
+  const [shop, api, notes] = ["C:\\dev\\shop", "C:\\dev\\api", "C:\\notes"].map(normalizeDir);
+  db.prepare("INSERT INTO repos(id, name) VALUES (?, 'shop')").run(shop);
+  const dir = db.prepare("INSERT INTO dirs(path, worktree, repo, checked_at) VALUES (?, ?, ?, 'x')");
+  dir.run(shop, shop, shop); dir.run(api, api, api); dir.run(notes, null, null);
+  const prompt = db.prepare("INSERT INTO prompts(uuid, session_id, at, text, cwd) VALUES (?, ?, ?, 'p', ?)");
+  prompt.run("p1", "tab1", "2026-10-10T10:00:00Z", "C:\\dev\\shop");
+  prompt.run("p2", "tab1", "2026-10-10T12:00:00Z", "C:\\dev\\api");
+  prompt.run("p3", "tab2", "2026-10-10T10:00:00Z", "C:\\notes");
+  const use = db.prepare("INSERT INTO usage VALUES (?, ?, ?, ?, 0, ?, 0, 0, 0)");
+  use.run("m1", "tab1", "2026-10-10T10:05:00Z", "claude-opus-5-5", 1e6); // shop: $20
+  use.run("m2", "tab1", "2026-10-10T12:05:00Z", "claude-opus-5-5", 5e5); // api (the tab moved): $10
+  use.run("m3", "tab2", "2026-10-10T10:05:00Z", "<synthetic>", 1);      // no repo, no price
+  use.run("m4", "tab1", "2026-10-01T10:05:00Z", "claude-opus-5-5", 1e6); // before the period
+  assert.deepEqual(costByRepo(db, "2026-10-09T00:00:00Z", "2026-10-11T00:00:00Z"), [
+    { repo: "shop", usd: 20, responses: 1, unpriced: 0 },
+    { repo: "api", usd: 10, responses: 1, unpriced: 0 },
+    { repo: `${notes} (no repo)`, usd: 0, responses: 1, unpriced: 1 },
+  ]);
+  const r = repoCosts(db, 2, Date.parse("2026-10-11T00:00:00Z"));
+  assert.equal(r.total_usd, 30);
+  assert.match(r.note, /not the bill/);
+});
 
 test("priceFor: context and date suffixes map to the table; unknown models are not guessed", () => {
   assert.deepEqual(priceFor("claude-opus-5[1m]"), priceFor("claude-opus-5"));

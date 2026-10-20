@@ -189,3 +189,11 @@ Measured: each hook call ~190 ms (Node startup); the per-edit hook is async and 
   comes back. **Untrack** a folder from the screen: written to config.json `ignore` (hooks read it on every
   call), nothing from it is stored any more (scanner and git refresh skip it), and what was stored is purged.
   Tasks stay. Undo in Settings.
+- **Cross-repo view for agents** (20/10/2026): `list_tasks all=true` gives the open cards of every repo,
+  grouped by repo, each with its folder, so a tab in one repo can answer "which projects are active?" and
+  take work in another. `cost_by_repo` answers the AI cost per repo over the last N days. A response counts
+  for the folder its tab was in at the prompt it answers (the tab's own repo, even when it edits another
+  one: which repo it worked on is not guessed). A tab opened outside any repo (`C:\dev`) shows as that
+  folder. Worktrees Claude Code makes in `<repo>/.claude/worktrees` are often deleted before Workglance
+  resolves them; a folder inside a repo's checkout counts for the nearest repo above it (on real data this
+  moved ~$2,600 of 30 days from "no repo" to the right repo).

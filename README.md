@@ -27,8 +27,11 @@ on your machine, without you writing anything down.
   warning.
 - **Review inside the card.** See the card's diff, comment on lines, send the review to the tab.
 - **Shared work memory.** Agents can search what any tab already did (`search_history`) before starting
-  something that may have been done or investigated before.
-- **And:** cost per card at API list prices, full-text search, a digest at the times you choose, "needs attention" for
+  something that may have been done or investigated before, and see the open cards of every repo
+  (`list_tasks` with `all`), so a tab in one repo can say which projects are active and pick up work in another.
+  Ask any tab "which repos have open cards?" or "what did each repo cost in AI this month?" (`cost_by_repo`).
+- **And:** cost per card and per repo at API list prices, full-text search, a digest at the times you choose
+  (grouped by repo, with what needs you on top), "needs attention" for
   stuck work and forgotten worktrees, metrics on how well the agents keep the board.
 
 ![A card: tabs, CI, the user's comment waiting for the tab, the timeline of events and commits](docs/img/card.png)
@@ -58,7 +61,7 @@ you") and a notification when a tab asks you something.
 ```
  Claude Code tabs ──hooks──▶ who / where / what is happening (stamped by the session, not the agent)
         │
-        └──MCP tools──▶ create_task, update_task, take_task, list_tasks, search_history
+        └──MCP tools──▶ create_task, update_task, take_task, list_tasks, search_history, cost_by_repo
                                │
  transcripts (~/.claude) ──────┼──▶ local server (127.0.0.1:4477) ──▶ SQLite in ~/.workglance
  git (your commits, branches) ─┘              │
@@ -67,7 +70,7 @@ you") and a notification when a tab asks you something.
 
 - **Hooks** stamp every card operation with the tab's identity and folder, track whether a tab is working
   or waiting for you, and remind an agent at the end of a turn when it changed code without a card.
-- **The MCP server** gives agents five tools and a short protocol: what deserves a card, when to move it,
+- **The MCP server** gives agents six tools and a short protocol: what deserves a card, when to move it,
   what a result must say.
 - **Transcripts** are read incrementally to know prompts, edits, git commands and model usage. They are
   also the outbox: a card operation that failed while the server was down is replayed from them.
@@ -128,7 +131,8 @@ Agents only ever see search results and card titles as data, never as instructio
   Pipelines. GitHub Actions needs nothing here: Workglance uses `GH_TOKEN`/`GITHUB_TOKEN` or your `gh` login,
   and without a token still reads public repos (checked less often, GitHub allows 60 calls an hour).
 - `digestTimes`: when the **digest** is written (default `08:00`; several a day are fine). Each one covers
-  everything since the previous one; a VS Code notification says when it's ready. Also editable in Settings.
+  everything since the previous one, grouped by repo (most active first) with what waits for you on top;
+  a VS Code notification says when it's ready. Also editable in Settings.
 - `digestSummary`: have `claude -p` write the digest's summary paragraph right away (default `true`).
 - `prices`: $ per million tokens for models missing from (or priced differently than) the built-in table.
   `workglance doctor` lists any model in use that has no price; its cost is left out, never guessed.

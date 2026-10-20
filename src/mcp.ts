@@ -8,6 +8,7 @@ import type { Db } from "./db.ts";
 import { STATUSES, TaskError, TYPES, type Stamp } from "./tasks.ts";
 import { runTool, type ToolName } from "./tools.ts";
 import { searchHistory } from "./history.ts";
+import { repoCosts } from "./cost.ts";
 
 // Filled by the PreToolUse hook from the session itself. The agent is told to leave it empty.
 const stampArg = z.object({ session_id: z.string(), cwd: z.string(), call_id: z.string() }).partial().optional()
@@ -67,6 +68,11 @@ function build(db: Db): McpServer {
       const w = a._workglance as { session_id?: string } | undefined;
       return reply(searchHistory(db, String(a.query), Number(a.limit ?? 8), w?.session_id ?? null));
     });
+  s.tool("cost_by_repo", "Estimated AI cost per repo over the last days, from this machine's Claude Code usage at API list prices (on a subscription it is a measure of model work, not the bill).",
+    {
+      days: z.number().int().min(1).max(365).default(30).describe("How many days back from now"),
+      _workglance: stampArg,
+    }, async (a: Record<string, any>) => reply(repoCosts(db, Number(a.days ?? 30), Date.now())));
   s.tool("list_tasks", "The user's workglance board (the cards, W-1, W-2, …): open tasks of this tab, and open tasks in this worktree that you could take. With all=true: the open tasks of every repo, grouped by repo, with the folder of each (which projects are active, work to do in another repo).",
     {
       all: z.boolean().default(false).describe("true = every repo on this machine, not just this tab and worktree"),
