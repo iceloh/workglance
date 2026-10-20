@@ -1,0 +1,48 @@
+{
+  "name": "workglance",
+  "version": "0.1.0",
+  "description": "What every AI coding tab did, across every repo: a task board your Claude Code agents keep themselves, which tab needs you right now, and how far each piece of work got.",
+  "license": "MIT",
+  "author": "Marcelo Araujo",
+  "homepage": "https://github.com/iceloh/workglance#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iceloh/workglance.git"
+  },
+  "bugs": {
+    "url": "https://github.com/iceloh/workglance/issues"
+  },
+  "type": "module",
+  "bin": {
+    "workglance": "dist/workglance.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "keywords": [
+    "claude-code",
+    "ai-agents",
+    "task-board",
+    "mcp",
+    "developer-tools"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --no-warnings --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test",
+    "demo": "node --no-warnings scripts/demo.ts --serve"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@types/node": "^24.19.2",
+    "esbuild": "^0.25.10",
+    "typescript": "^5.9.3",
+    "zod": "^4.6.7"
+  }
+}

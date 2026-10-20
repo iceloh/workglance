@@ -1,0 +1,26 @@
+{
+  "name": "workglance",
+  "displayName": "Workglance",
+  "description": "What every AI coding tab did, across every repo: a task board your agents keep, and who needs you right now.",
+  "version": "0.8.1",
+  "publisher": "workglance",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/iceloh/workglance" },
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "workglance.openBoard", "title": "Workglance: Open board" },
+      { "command": "workglance.openInBrowser", "title": "Workglance: Open board in browser" }
+    ],
+    "configuration": {
+      "title": "Workglance",
+      "properties": {
+        "workglance.notifications": { "type": "boolean", "default": true, "description": "Notify when a tab asks you something or needs permission." },
+        "workglance.pollSeconds": { "type": "number", "default": 4, "minimum": 2, "description": "How often to check the tabs' status." }
+      }
+    }
+  }
+}

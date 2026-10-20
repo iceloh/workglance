@@ -1,0 +1,33 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { openDb } from "./db.ts";
+import { boardStats } from "./report.ts";
+import { costOf } from "./cost.ts";
+
+test("boardStats: counts in the period, priced per model, open work regardless of period", () => {
+  const db = openDb(":memory:");
+  const task = db.prepare("INSERT INTO tasks(title, type, status, created_at, updated_at, closed_at) VALUES (?, 'feature', ?, ?, ?, ?)");
+  task.run("old done", "done", "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z");
+  task.run("new done", "done", "2026-10-18T00:00:00Z", "2026-10-18T00:00:00Z", "2026-10-19T00:00:00Z");
+  task.run("old open", "in_progress", "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z", null);
+  task.run("testing", "testing", "2026-10-18T00:00:00Z", "2026-10-18T00:00:00Z", null);
+  const use = db.prepare("INSERT INTO usage VALUES (?, 's1', ?, ?, 100, 1000, 0, 0, 5000)");
+  use.run("m1", "2026-10-18T01:00:00Z", "claude-opus-5-5");
+  use.run("m2", "2026-10-18T02:00:00Z", "claude-opus-5-5");
+  use.run("m3", "2026-09-01T00:00:00Z", "claude-opus-5-5");
+  use.run("m4", "2026-10-18T03:00:00Z", "some-unknown-model");
+  db.prepare("INSERT INTO prompts VALUES ('p1', 's1', '2026-10-18T00:00:00Z', 'hi', NULL, NULL)").run();
+  db.prepare("INSERT INTO prompts VALUES ('p2', 's2', '2026-10-18T00:00:00Z', 'hi', NULL, NULL)").run();
+  db.prepare("INSERT INTO prompts VALUES ('p3', 's2', '2026-09-01T00:00:00Z', 'hi', NULL, NULL)").run();
+  const s = boardStats(db, "2026-10-12T00:00:00Z");
+  assert.equal(s.created, 2);
+  assert.equal(s.done, 1);
+  assert.equal(s.inProgress, 1, "open work counts whatever the period");
+  assert.equal(s.testing, 1);
+  const one = costOf({ model: "claude-opus-5-5", input: 100, output: 1000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 5000 })!;
+  assert.ok(Math.abs(s.costUsd - 2 * one) < 1e-9, "two priced responses in the period");
+  assert.equal(s.unpriced, 1, "unknown models are counted, never guessed");
+  assert.equal(s.tabs, 2);
+  assert.equal(s.prompts, 2);
+  assert.equal(boardStats(db).created, 4, "no period: everything");
+});
