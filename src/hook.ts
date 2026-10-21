@@ -11,7 +11,7 @@ import { isIgnored, loadConfig, tempDirs } from "./config.ts";
 import { gitActions, isUnder } from "./transcript.ts";
 import { snapshotText, userChanges, userChangesText, type Task, type UserChange } from "./tasks.ts";
 import { endOfTurnStatus, loadState, saveState, type LiveStatus } from "./state.ts";
-import { NUDGE, PROTOCOL } from "./protocol.ts";
+import { NUDGE, protocolFor } from "./protocol.ts";
 
 const MAX_NUDGES_PER_SESSION = 8;
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -106,7 +106,8 @@ async function main() {
     setLive(sid, "done"); // a fresh or resumed tab is waiting for your first message
     await ensureServer(cfg.port);
     const ctx = await contextFor(sid);
-    out({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx ? `${PROTOCOL}\n\n${ctx}` : PROTOCOL } });
+    const protocol = protocolFor(cfg.columnRules);
+    out({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx ? `${protocol}\n\n${ctx}` : protocol } });
   } else if (event === "UserPromptSubmit") {
     setLive(sid, "working");
     const ctx = await contextFor(sid);

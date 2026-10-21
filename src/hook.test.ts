@@ -33,6 +33,13 @@ test("SessionStart gives the protocol; prompts get no snapshot when there are no
   assert.equal(JSON.parse(readFileSync(join(h.home, "state", "tab-a.json"), "utf8")).cwd, CWD);
 });
 
+test("SessionStart tells the tab the user's own column rules from config.json", () => {
+  const h = harness({ columnRules: { testing: "Deployed to dev and the pipeline is green" } });
+  const ctx = h.run("SessionStart", { source: "startup" }).hookSpecificOutput.additionalContext as string;
+  assert.match(ctx, /Testing, by the user's own rule for this board: "Deployed to dev and the pipeline is green"/);
+  assert.doesNotMatch(ctx, /Pushed to a test\/dev branch/);
+});
+
 test("a tab opened before install (no SessionStart from us) is left alone: no stamp, no nudge", () => {
   const h = harness();
   assert.equal(h.run("PreToolUse", { tool_name: "mcp__workglance__create_task", tool_input: {} }), null);

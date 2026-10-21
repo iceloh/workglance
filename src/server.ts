@@ -10,7 +10,7 @@ import { openDb, WORKGLANCE_HOME } from "./db.ts";
 import { appFile } from "./paths.ts";
 import { iconSvg } from "./icon.ts";
 import { allStates } from "./state.ts";
-import { TaskError, userComment, userMove, type TaskStatus } from "./tasks.ts";
+import { autoDoneOnMain, TaskError, userComment, userMove, type TaskStatus } from "./tasks.ts";
 import { scan } from "./scan.ts";
 import { replayFailedCalls } from "./replay.ts";
 import { loadConfig } from "./config.ts";
@@ -26,7 +26,7 @@ import { metrics } from "./metrics.ts";
 import { renderMetricsPage, renderSettingsPage } from "./page.ts";
 import { dismiss } from "./attention.ts";
 import { browseFolder, knownFolders, retrack, untrack } from "./untrack.ts";
-import { isIgnored, parseLanguage, setConfig, untrackedFolders } from "./config.ts";
+import { isIgnored, parseColumnRules, parseLanguage, setConfig, untrackedFolders } from "./config.ts";
 
 /** The latest eval run (from `workglance eval`), if any. */
 function latestEvals(): { at: string; model: string; results: { name: string; pass: boolean; failures: string[]; warnings: string[]; costUsd: number }[] } | null {
@@ -77,7 +77,11 @@ function refreshGit(): void {
   const w = new Worker(appFile("refresh-worker"));
   w.once("message", (m: { error: string | null }) => { gitError = m.error; });
   // gitAt stays at the START of the run: an action that happened during it triggers the next one.
-  w.once("exit", () => { gitRunning = false; version++; });
+  w.once("exit", () => {
+    gitRunning = false; version++;
+    // Fresh git facts: a card in Testing whose changes all reached main moves to Done, if the user asked for it.
+    if (loadConfig().autoDoneOnMain) try { autoDoneOnMain(db); } catch (e) { console.error("auto done:", e instanceof Error ? e.message : e); }
+  });
 }
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -253,6 +257,16 @@ const server = http.createServer((req, res) => {
     }).catch((e) => res.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ error: e instanceof Error ? e.message : "failed" })));
     return;
   }
+  if (url.pathname === "/api/settings/columns") {
+    if (req.method !== "POST" || !String(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(405).end(); return; }
+    readJson(req).then((body) => {
+      const rules = parseColumnRules(body.rules), autoDoneOnMain = body.autoDoneOnMain === true;
+      setConfig({ columnRules: rules, autoDoneOnMain });
+      version++;
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ rules, autoDoneOnMain }));
+    }).catch(() => res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: "bad request" })));
+    return;
+  }
   if (url.pathname === "/api/settings/digest") {
     if (req.method !== "POST" || !String(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(405).end(); return; }
     readJson(req).then((body) => {
@@ -286,7 +300,8 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/settings") {
     const c = loadConfig();
-    const html = renderSettingsPage(untrackedFolders(), { times: c.digestTimes, summary: c.digestSummary, language: c.digestLanguage });
+    const html = renderSettingsPage(untrackedFolders(), { times: c.digestTimes, summary: c.digestSummary, language: c.digestLanguage },
+      { rules: c.columnRules, autoDoneOnMain: c.autoDoneOnMain });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" }).end(html);
     return;
   }

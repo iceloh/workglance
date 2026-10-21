@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "./db.ts";
-import { createTask, openTasksByRepo, sessionTasks, snapshotText, takeTask, TaskError, taskForCommit, updateTask } from "./tasks.ts";
+import { autoDoneOnMain, createTask, openTasksByRepo, sessionTasks, userMove, snapshotText, takeTask, TaskError, taskForCommit, updateTask } from "./tasks.ts";
 
 const A = { session_id: "tab-a", cwd: "C:\\dev\\shop" };
 const B = { session_id: "tab-b", cwd: "C:\\dev\\shop" };
@@ -121,4 +121,26 @@ test("openTasksByRepo: open cards of every repo, most open first; closed ones le
     ["shop", ["Fix cart", "Plan promo"]], ["api", ["Add auth"]], ["other", ["Loose"]],
   ]);
   assert.equal(by[0].tasks[0].worktree, "C:\\dev\\shop", "where to go to work on it");
+});
+
+test("autoDoneOnMain: Testing cards whose every change reached main; not the user's, not In progress, not without commits", () => {
+  const db = openDb(":memory:");
+  const card = (title: string, status: "testing" | "in_progress") => {
+    const t = createTask(db, A, where, { title, type: "feature" });
+    if (status === "testing") updateTask(db, A, "agent", { id: t.id, status: "testing", note: "pushed to dev" });
+    return t.id;
+  };
+  const commit = db.prepare("INSERT INTO commits(sha, repo, at, subject, session_id, task_id, in_dev, in_main) VALUES (?, 'r', '2026-10-21T10:00:00Z', ?, 'tab-a', ?, 1, ?)");
+  const shipped = card("All in main", "testing"); commit.run("a1", "feat: a", shipped, 1); commit.run("a2", "feat: b", shipped, 1);
+  const partly = card("One left", "testing"); commit.run("b1", "feat: c", partly, 1); commit.run("b2", "feat: d", partly, 0);
+  const rebased = card("Rebased", "testing"); commit.run("c1", "feat: e", rebased, 0); commit.run("c2", "feat: e", rebased, 1); // old copy + the one on main
+  const mine = card("User put it in Testing", "in_progress"); commit.run("d1", "feat: f", mine, 1); userMove(db, mine, "testing");
+  const working = card("Still being worked on", "in_progress"); commit.run("e1", "feat: g", working, 1);
+  const empty = card("No commits", "testing");
+  const unknown = card("Not checked yet", "testing"); db.prepare("INSERT INTO commits(sha, repo, at, subject, session_id, task_id) VALUES ('f1', 'r', 'x', 'feat: h', 'tab-a', ?)").run(unknown);
+  assert.deepEqual(autoDoneOnMain(db).map((t) => t.id).sort(), [shipped, rebased]);
+  const ev = db.prepare("SELECT actor, to_status FROM task_events WHERE task_id = ? ORDER BY id DESC LIMIT 1").get(shipped) as { actor: string; to_status: string };
+  assert.deepEqual([ev.actor, ev.to_status], ["auto", "done"]);
+  assert.deepEqual(autoDoneOnMain(db), [], "idempotent: nothing left to move");
+  void partly; void working; void empty;
 });

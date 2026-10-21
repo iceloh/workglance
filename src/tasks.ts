@@ -30,7 +30,7 @@ function touch(db: Db, taskId: number, sessionId: string, at: string): void {
     ON CONFLICT(task_id, session_id) DO UPDATE SET last_at = excluded.last_at`).run(taskId, sessionId, at, at);
 }
 
-function event(db: Db, e: { taskId: number; at: string; actor: "agent" | "user"; sessionId: string | null; kind: string; from?: string | null; to?: string | null; note?: string | null }): void {
+function event(db: Db, e: { taskId: number; at: string; actor: "agent" | "user" | "auto"; sessionId: string | null; kind: string; from?: string | null; to?: string | null; note?: string | null }): void {
   db.prepare("INSERT INTO task_events(task_id, at, actor, session_id, kind, from_status, to_status, note) VALUES (?,?,?,?,?,?,?,?)")
     .run(e.taskId, e.at, e.actor, e.sessionId, e.kind, e.from ?? null, e.to ?? null, e.note ?? null);
 }
@@ -54,7 +54,7 @@ export function createTask(db: Db, stamp: Stamp, where: Where, input: { title: s
   return getTask(db, id)!;
 }
 
-export function updateTask(db: Db, stamp: Stamp | null, actor: "agent" | "user",
+export function updateTask(db: Db, stamp: Stamp | null, actor: "agent" | "user" | "auto",
   input: { id: number; status?: TaskStatus; title?: string; type?: TaskType; note?: string; result?: string }): Task {
   const t = getTask(db, input.id);
   if (!t) throw new TaskError(`${ref(input.id)} does not exist`);
@@ -88,6 +88,20 @@ const ORDER: Record<TaskStatus, number> = { planned: 0, in_progress: 1, testing:
 /** Moving a card backwards or dropping it needs a reason: that reason is what the tab will act on. */
 export function needsReason(from: TaskStatus, to: TaskStatus): boolean {
   return to === "dropped" || ORDER[to] < ORDER[from];
+}
+
+/**
+ * Cards in Testing whose every change has reached main, moved to Done by Workglance itself (the
+ * autoDoneOnMain setting). A change counts once whatever its copies (a rebase leaves an old sha that never
+ * reaches main). Not a card the user put in Testing: the user wins. Only Testing: an In progress card may
+ * have its commits on main while its tab still works on it.
+ */
+export function autoDoneOnMain(db: Db): Task[] {
+  const candidates = db.prepare(`SELECT t.id FROM tasks t WHERE t.status = 'testing'
+    AND (SELECT e.actor FROM task_events e WHERE e.task_id = t.id AND e.kind = 'status' ORDER BY e.id DESC LIMIT 1) IS NOT 'user'
+    AND EXISTS (SELECT 1 FROM commits c WHERE c.task_id = t.id)
+    AND NOT EXISTS (SELECT 1 FROM (SELECT max(COALESCE(c.in_main, 0) = 1) AS m FROM commits c WHERE c.task_id = t.id GROUP BY c.repo, c.subject) WHERE m = 0)`).all() as { id: number }[];
+  return candidates.map(({ id }) => updateTask(db, null, "auto", { id, status: "done", note: "all its changes reached main (Settings: move to Done when commits reach main)" }));
 }
 
 /** The user moved a card on the board. Never commits, pushes or deploys anything: it only informs the tab. */

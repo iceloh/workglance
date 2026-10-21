@@ -19,7 +19,8 @@ on your machine, without you writing anything down.
   small edits never become cards. Which tab, repo and branch did the work is recorded by hooks, not by
   what the agent says.
 - **You steer from the board.** Drag a card back to "in progress" or comment on it, and the tab reads it
-  on its next prompt. Your changes always win over the agent's.
+  on its next prompt. Your changes always win over the agent's. Each column's rule is yours to rewrite in
+  plain words ("testing = deployed to dev"), and a card can move to Done by itself when its code reaches main.
 - **Who needs you, live.** A rail of tabs: waiting for an answer, waiting for a permission, working, idle.
   One click opens that exact Claude Code session, in the VS Code window that has it.
 - **One repo or one tab at a time.** Filter the board by repo and by tab from the top bar; the filter stays
@@ -126,7 +127,9 @@ Agents only ever see search results and card titles as data, never as instructio
   "prices": { "claude-new-model": { "input": 3, "output": 15 } },
   "digestTimes": ["08:00", "13:00", "18:00"],
   "digestSummary": true,
-  "digestLanguage": "Portuguese"
+  "digestLanguage": "Portuguese",
+  "columnRules": { "testing": "Deployed to dev and the pipeline is green" },
+  "autoDoneOnMain": true
 }
 ```
 
@@ -142,8 +145,13 @@ Agents only ever see search results and card titles as data, never as instructio
 - `digestLanguage`: the language the summary is written in (`"Portuguese"`, `"English"`…). Unset: the
   language of your cards. Also editable in Settings.
 
-On the latest digest, **New digest** writes one right away covering everything since that digest, up to now;
-the next scheduled one starts from there, so nothing is covered twice or left out.
+  On the latest digest, **New digest** writes one right away covering everything since that digest, up to
+  now; the next scheduled one starts from there, so nothing is covered twice or left out.
+- `columnRules`: your own rule for when an agent moves a card to `planned`, `testing` or `done`, in your
+  words (e.g. "never move it to done, leave it in testing for me"). It replaces that column's default rule in
+  what every new tab is told; what a move requires (a note, a result) stays. Also editable in Settings.
+- `autoDoneOnMain`: when every change of a card in Testing has reached `main`, Workglance moves it to Done
+  itself, even with no tab open (default `false`). Never a card you put in Testing yourself.
 - `prices`: $ per million tokens for models missing from (or priced differently than) the built-in table.
   `workglance doctor` lists any model in use that has no price; its cost is left out, never guessed.
 

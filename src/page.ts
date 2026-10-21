@@ -103,7 +103,7 @@ export function renderTaskPage(d: TaskDetail): string {
     if (i.kind === "commit") return `<li class="tl commit"><span class="when">${when(i.at)}</span><span class="badge ${i.stage}">${STAGE[i.stage]}</span> <code>${esc(i.sha.slice(0, 9))}</code> ${esc(i.subject)} <span class="muted">${esc(i.repo)}</span></li>`;
     if (i.kind === "prompt") return `<li class="tl prompt"><span class="when">${when(i.at)}</span><span class="who">you → ${esc(i.tab ?? "tab")}</span> ${esc(i.text.length > 400 ? i.text.slice(0, 400) + "…" : i.text)}</li>`;
     const move = i.what === "status" ? `${STATUS_LABEL[i.from ?? ""] ?? i.from} → <b>${STATUS_LABEL[i.to ?? ""] ?? i.to}</b>` : i.what === "created" ? `created as <b>${STATUS_LABEL[i.to ?? ""] ?? i.to}</b>` : esc(i.what);
-    return `<li class="tl event"><span class="when">${when(i.at)}</span><span class="who">${esc(i.actor === "user" ? "you" : i.tab ?? "agent")}</span> ${move}${i.note ? ` — ${esc(i.note)}` : ""}</li>`;
+    return `<li class="tl event"><span class="when">${when(i.at)}</span><span class="who">${esc(i.actor === "user" ? "you" : i.actor === "auto" ? "Workglance" : i.tab ?? "agent")}</span> ${move}${i.note ? ` — ${esc(i.note)}` : ""}</li>`;
   };
   const edits = d.editsByWorktree.map((e) => `<span class="chip" title="${esc(e.worktree)}">${esc(short(e.worktree))} · ${e.n}</span>`).join("");
   return shell(`W-${d.id} ${d.title}`, `${topNav("")}
@@ -180,7 +180,30 @@ export const LANGUAGES = ["English", "Portuguese (Brazil)", "Portuguese (Portuga
 
 const timeChip = (t: string) => `<span class="timechip"><input type="time" value="${esc(t)}" required aria-label="Digest time"><button type="button" class="x" title="Remove this time" onclick="removeTime(this)">×</button></span>`;
 
-export function renderSettingsPage(untracked: string[], digest: { times: string[]; summary: boolean; language: string } = { times: ["08:00"], summary: true, language: "" }): string {
+/** In plain words, the default rule of each column the user can rewrite (what the protocol tells agents). */
+export const DEFAULT_RULES = {
+  planned: "Agreed, but not started now",
+  testing: "Pushed to a test/dev branch, waiting for verification",
+  done: "The work is finished (it always closes with a result: what changed, how it was verified, what is left)",
+} as const;
+
+function columnsPanel(c: { rules: Partial<Record<keyof typeof DEFAULT_RULES, string>>; autoDoneOnMain: boolean }): string {
+  const field = (k: keyof typeof DEFAULT_RULES, label: string) => `<div class="field"><label class="label" for="rule-${k}">${label}</label><div class="fieldbody">
+<textarea id="rule-${k}" name="${k}" rows="2" maxlength="400" placeholder="Default: ${esc(DEFAULT_RULES[k])}">${esc(c.rules[k] ?? "")}</textarea></div></div>`;
+  return `<section class="panel">
+<h3>Columns</h3>
+<p class="muted">When an agent moves a card to each column. Write your own rule in your words; it replaces the default one every agent is told. Leave it empty to keep the default. New tabs read it when they start; open tabs after a restart.</p>
+<form onsubmit="return saveColumns(this)">
+${field("planned", "Planned")}${field("testing", "Testing")}${field("done", "Done")}
+<div class="field"><span class="label">Automatic</span><div class="fieldbody"><label class="check"><input type="checkbox" name="autoDone"${c.autoDoneOnMain ? " checked" : ""}> When every change of a card in Testing reaches <code>main</code>, move it to Done</label>
+<div class="muted small">Workglance does it itself after checking git, even with no tab open. Never a card you put in Testing yourself.</div></div></div>
+<div class="formactions"><button class="btn primary">Save</button><span class="small" id="columnsstatus"></span></div>
+</form>
+</section>`;
+}
+
+export function renderSettingsPage(untracked: string[], digest: { times: string[]; summary: boolean; language: string } = { times: ["08:00"], summary: true, language: "" },
+  columns: { rules: Partial<Record<keyof typeof DEFAULT_RULES, string>>; autoDoneOnMain: boolean } = { rules: {}, autoDoneOnMain: false }): string {
   const langs = digest.language && !LANGUAGES.includes(digest.language) ? [digest.language, ...LANGUAGES] : LANGUAGES;
   return shell("Settings", `${topNav("settings")}<main class="detail settings">
 <h2>Settings</h2>
@@ -198,6 +221,7 @@ ${langs.map((l) => `<option${l === digest.language ? " selected" : ""}>${esc(l)}
 <div class="formactions"><button class="btn primary">Save</button><span class="small" id="digeststatus"></span></div>
 </form>
 </section>
+${columnsPanel(columns)}
 <section class="panel">
 <h3>Untracked folders</h3>
 <p class="muted">Workglance doesn't look at these: tabs working there get no protocol, cards or nudges, nothing from them is stored, and no git command runs there. Their cards stay.</p>
@@ -232,6 +256,13 @@ syncTimes();
 // Folder search: the list comes once from the server; rows are built with textContent only.
 let folders=null;
 const ago=(iso)=>{const h=(Date.now()-Date.parse(iso))/3600e3,d=Math.round(h/24);return h<1?"in the last hour":h<24?Math.round(h)+" h ago":d===1?"yesterday":d+" days ago"};
+async function saveColumns(f){const s=document.getElementById("columnsstatus");
+  const body={rules:{planned:f.planned.value,testing:f.testing.value,done:f.done.value},autoDoneOnMain:f.autoDone.checked};
+  const r=await fetch("/api/settings/columns",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}).catch(()=>null);
+  const j=r?await r.json().catch(()=>({})):{};
+  if(!r||!r.ok){s.className="small err";s.textContent="Not saved: "+(j.error||"the local server didn't answer");return false}
+  const own=Object.keys(j.rules).length;s.className="small ok";
+  s.textContent="Saved: "+(own?own+" rule"+(own>1?"s":"")+" of yours":"the default rules")+(j.autoDoneOnMain?" · main moves cards to Done":"")+". New tabs follow it; restart open ones.";return false}
 // Folder browser: any folder of this PC, listed by the local server (names of subfolders only).
 let cur=null;
 const unquote=(s)=>s.trim().replace(/^"(.*)"$/,"$1").trim();
@@ -601,6 +632,7 @@ mark{background:rgba(254,230,0,.55);color:inherit;border-radius:3px;padding:0 2p
 .dirrow{display:flex;width:100%;justify-content:space-between;gap:10px;padding:6px 10px;border:0;border-radius:6px;background:none;color:var(--text);font:inherit;font-size:13px;text-align:left;cursor:pointer}
 .dirrow:hover{background:var(--card)}.dirrow .dname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dirrow.off .dname{color:var(--muted);text-decoration:line-through}
 .btn.danger:disabled{opacity:.45}
+.settings textarea{width:100%;box-sizing:border-box;font:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);resize:vertical}
 .confirm{margin:6px 0 8px;padding:12px 14px;border:1px solid #c2410c;border-radius:8px;background:rgba(194,65,12,.08);display:flex;flex-direction:column;gap:6px}
 .confirm>div:first-child{font-weight:600;overflow-wrap:anywhere}.confirmactions{display:flex;gap:8px;justify-content:flex-end;align-items:center}
 .btn.danger{border-color:#c2410c}.btn.danger:hover:not(:disabled){background:#c2410c;color:#fff}

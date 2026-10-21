@@ -18,7 +18,26 @@ export type Config = {
   digestSummary: boolean;
   /** The language the digest summary is written in ("Portuguese", "English"…). "" = the language of the cards. */
   digestLanguage: string;
+  /** The user's own rule for when an agent moves a card to these columns, in their words; unset = the default. */
+  columnRules: ColumnRules;
+  /** When every change of a card in Testing has reached main, Workglance moves it to Done by itself. */
+  autoDoneOnMain: boolean;
 };
+
+export const RULE_COLUMNS = ["planned", "testing", "done"] as const;
+export type ColumnRules = Partial<Record<(typeof RULE_COLUMNS)[number], string>>;
+
+/** One line each, at most 400 characters: they go into what every agent is told. */
+export function parseColumnRules(v: unknown): ColumnRules {
+  const out: ColumnRules = {};
+  if (!v || typeof v !== "object") return out;
+  for (const k of RULE_COLUMNS) {
+    const s = (v as Record<string, unknown>)[k];
+    const t = typeof s === "string" ? s.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 400) : "";
+    if (t) out[k] = t;
+  }
+  return out;
+}
 
 /** A language name as the user typed it, or "" (the cards' language). It goes into the summary prompt: words only. */
 export function parseLanguage(v: unknown): string {
@@ -57,6 +76,8 @@ export function loadConfig(): Config {
     digestTimes: parseTimes((raw as { digestTimes?: unknown }).digestTimes),
     digestSummary: (raw as { digestSummary?: unknown }).digestSummary !== false,
     digestLanguage: parseLanguage((raw as { digestLanguage?: unknown }).digestLanguage),
+    columnRules: parseColumnRules((raw as { columnRules?: unknown }).columnRules),
+    autoDoneOnMain: (raw as { autoDoneOnMain?: unknown }).autoDoneOnMain === true,
   };
 }
 

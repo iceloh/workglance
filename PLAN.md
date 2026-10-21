@@ -209,3 +209,14 @@ Measured: each hook call ~190 ms (Node startup); the per-edit hook is async and 
   transcript's folder name, counted only when it is exactly an untracked folder's encoding. A tab opened in
   a tracked folder that also touched an untracked one stays. The tab history hides a tab only when no
   tracked place is left; Claude Code's own folder (`~/.claude`, memory reads) doesn't count as one.
+- **Column rules are the user's** (21/10/2026). Two kinds, because they happen at different times:
+  - When an *agent* moves a card: `columnRules` (Settings, plain words) replaces the default condition for
+    planned / testing / done in the protocol a new tab gets. Only the condition: what a move requires (a note,
+    a result) stays. With no rules the protocol is byte-identical to the default (tested), so evals of the
+    default still hold. Different devs want different flows ("prd means done" vs "I confirm by hand").
+  - What happens with *no tab open*: reaching main is a git fact, often hours after the agent left. A text rule
+    would have no one to read it, so it is a setting, applied by Workglance after each git check:
+    `autoDoneOnMain` moves Testing -> Done when every change reached main. A change counts once whatever its
+    copies (a rebase leaves an old sha off main). Never a card whose last move was the user's (the user wins);
+    never In progress (commits on main while the tab still works, as in this repo). Actor "auto", shown as
+    "Workglance" on the timeline.

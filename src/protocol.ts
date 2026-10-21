@@ -2,6 +2,29 @@
 // Adapted from Conus's task protocol (github.com/Pandusss/conus, MIT): main tasks only, decide by
 // signal, never make bookkeeping the topic of the conversation.
 
+import type { ColumnRules } from "./config.ts";
+
+// The default rule for each column the user can rewrite in Settings; what an agent must do there stays.
+const RULE_LINES = {
+  planned: "- Agreed but not started now: create_task with start_now=false.",
+  testing: "- Pushed to a test/dev branch, waiting for verification: update_task status=testing.",
+  done: "- Done: update_task status=done with a result",
+} as const;
+const quoted = (s: string) => `"${s.replace(/"/g, "'")}"`;
+
+/**
+ * The protocol with the user's own column rules, when they set any. Their words replace the default
+ * condition only; what a status change requires (a note, a result with what changed and how it was
+ * verified) stays. Changing what these lines say changes every agent: run `workglance eval`.
+ */
+export function protocolFor(rules: ColumnRules = {}): string {
+  let p = PROTOCOL;
+  if (rules.planned) p = p.replace(RULE_LINES.planned, `- Planned, by the user's own rule for this board: ${quoted(rules.planned)}. When it applies: create_task with start_now=false.`);
+  if (rules.testing) p = p.replace(RULE_LINES.testing, `- Testing, by the user's own rule for this board: ${quoted(rules.testing)}. When it is met: update_task status=testing.`);
+  if (rules.done) p = p.replace(RULE_LINES.done, `- Done, by the user's own rule for this board: ${quoted(rules.done)}. When it is met: update_task status=done with a result`);
+  return p;
+}
+
 export const PROTOCOL = `## Workglance (task tracking for this machine)
 You have workglance tools (mcp__workglance__*). Keep the user's task board in sync as a quiet part of your work.
 The test for a task: would the user want to find this on a board a week from now?
