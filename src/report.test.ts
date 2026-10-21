@@ -2,7 +2,39 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "./db.ts";
 import { createTask, updateTask } from "./tasks.ts";
-import { isNoise, taskDetail, verification } from "./report.ts";
+import { isNoise, liveTabs, onlyUntracked, projectDirName, taskDetail, verification } from "./report.ts";
+import { pathKey } from "./transcript.ts";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const untrackedNotes = () => {
+  const db = openDb(":memory:");
+  const notes = "C:\\dev\\notes", shop = "C:\\dev\\shop";
+  const cfg = { enabled: true, port: 1, ignore: [pathKey(notes)], bitbucketNetrc: null, prices: {}, digestTimes: ["08:00"], digestSummary: false, digestLanguage: "" };
+  const session = db.prepare("INSERT INTO sessions(id, transcript, titles) VALUES (?, ?, '[]')");
+  const loc = db.prepare("INSERT INTO locations(session_id, cwd, branch, first_at, last_at) VALUES (?, ?, '', 'a', 'b')");
+  return { db, cfg, notes, shop, session, loc };
+};
+
+test("liveTabs: hidden when the tab was opened in an untracked folder (its hooks don't run: status frozen)", () => {
+  const { db, cfg, notes, shop, session, loc } = untrackedNotes();
+  session.run("both", null); loc.run("both", shop);                   // opened in shop; worked in notes too
+  session.run("hum", null); loc.run("hum", "C:\\tmp\\foda");          // opened in notes, also touched a tracked folder
+  session.run("legacy", `C:\\Users\\me\\.claude\\projects\\${projectDirName(notes)}\\legacy.jsonl`); // no cwd in state
+  session.run("near", `C:\\Users\\me\\.claude\\projects\\${projectDirName(notes)}-2\\near.jsonl`);  // notes-2: not notes
+  session.run("fresh", null);                                         // not scanned yet, folder unknown
+  const st = (cwd?: string) => ({ active: true, live: "working", liveAt: "2026-10-21T10:00:00Z", cwd });
+  const live = liveTabs(db, cfg, new Map([["both", st(shop)], ["hum", st(notes)], ["legacy", st()], ["near", st()], ["fresh", st()]]));
+  assert.deepEqual(live.map((t) => t.id).sort(), ["both", "fresh", "near"]);
+});
+
+test("onlyUntracked: a tracked place keeps a tab in the history; Claude Code's own folder doesn't count", () => {
+  const { db, cfg, notes, session, loc } = untrackedNotes();
+  session.run("a", null); loc.run("a", join(homedir(), ".claude", "projects", "x", "memory"));
+  session.run("b", null); loc.run("b", "C:\\tmp\\foda");
+  assert.equal(onlyUntracked(db, cfg, "a", notes), true);
+  assert.equal(onlyUntracked(db, cfg, "b", notes), false);
+});
 
 const z = { done: 0, testing: 0, in_progress: 0, local: 0 };
 

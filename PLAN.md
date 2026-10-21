@@ -203,3 +203,9 @@ Measured: each hook call ~190 ms (Node startup); the per-edit hook is async and 
   The summary prompt now carries both ends of the period and its length: given only "Since 08:00" the model
   called one day "a week of shipping". `digestLanguage` (Settings) is letters, spaces, () and - only, since
   it goes into the prompt.
+- **Tabs in untracked folders** (21/10/2026): the live rail hides a tab opened in an untracked folder. Its
+  hooks never run there (no protocol, no cards, no status), so its status is frozen from before the untrack
+  ("working, 17 h"). The opening folder is stored by SessionStart; for older tabs it comes from the
+  transcript's folder name, counted only when it is exactly an untracked folder's encoding. A tab opened in
+  a tracked folder that also touched an untracked one stays. The tab history hides a tab only when no
+  tracked place is left; Claude Code's own folder (`~/.claude`, memory reads) doesn't count as one.

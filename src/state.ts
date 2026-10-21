@@ -7,6 +7,7 @@ export type TabState = {
   changed: number;          // edits/commits since the last task operation (nudge)
   nudges: number;
   active?: boolean;         // our SessionStart ran: the tab has the workglance tools
+  cwd?: string;             // the folder the tab was opened in (SessionStart), to hide it when that's untracked
   seenEventId?: number;     // last board change made by the user that this tab was told about
   live?: LiveStatus;        // what the tab is doing right now
   liveAt?: string;

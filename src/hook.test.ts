@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +29,8 @@ test("SessionStart gives the protocol; prompts get no snapshot when there are no
   const s = h.run("SessionStart", { source: "startup" });
   assert.match(s.hookSpecificOutput.additionalContext, /Workglance \(task tracking/);
   assert.equal(h.run("UserPromptSubmit", { prompt: "hi" }), null);
+  // Where the tab was opened: the board hides it if that folder is untracked later.
+  assert.equal(JSON.parse(readFileSync(join(h.home, "state", "tab-a.json"), "utf8")).cwd, CWD);
 });
 
 test("a tab opened before install (no SessionStart from us) is left alone: no stamp, no nudge", () => {

@@ -1,6 +1,9 @@
 // Read model for the board: plain objects, no HTML.
 import type { Db } from "./db.ts";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { isIgnored, type Config } from "./config.ts";
+import { isUnder } from "./transcript.ts";
 import { taskActivity } from "./task-place.ts";
 import { costOf, taskCost, type CostSummary } from "./cost.ts";
 
@@ -48,7 +51,7 @@ export function tabs(db: Db, cfg: Config, opts: { sinceIso?: string; promptLimit
   const out: TabView[] = [];
   for (const s of sessions) {
     const pl = (places.all(s.id) as any[]).map((p) => ({ worktree: p.worktree, repo: p.repo, branch: p.branch, lastAt: p.last_at }));
-    if (pl.length && pl.every((p) => isIgnored(cfg, p.worktree))) continue;
+    if (pl.length ? pl.every((p) => isIgnored(cfg, p.worktree)) : onlyUntracked(db, cfg, s.id)) continue;
     // A rebase leaves two shas for one change: show it once, at the furthest stage any copy reached.
     const merged = new Map<string, CommitView>();
     for (const c of commits.all(s.id) as any[]) {
@@ -171,17 +174,45 @@ export function taskDetail(db: Db, id: number, seen?: SeenMap): TaskDetail | nul
   return { ...card, description: t.description, createdAt: t.created_at, closedAt: t.closed_at, timeline, editsByWorktree };
 }
 
+/** Claude Code keeps a tab's transcript in a folder named after where it was opened: each non-alphanumeric -> "-". */
+export const projectDirName = (cwd: string) => cwd.replace(/[^a-zA-Z0-9]/g, "-");
+
+/**
+ * True when everything known about where a tab works is untracked: no location left in a tracked folder
+ * (untracking deletes the others) and the folder it was opened in is untracked. The opening folder comes from
+ * its state, else from its transcript's folder name, counted only when it is exactly an untracked folder's.
+ * A tab with no location yet and no known folder stays shown (it may just not be scanned). Claude Code's own
+ * folder (its memory, read by any tab) is no place of work: it doesn't make a tab tracked.
+ */
+export function onlyUntracked(db: Db, cfg: Config, sessionId: string, openedIn?: string, claudeDir = join(homedir(), ".claude")): boolean {
+  const tracked = (db.prepare("SELECT cwd FROM locations WHERE session_id = ?").all(sessionId) as { cwd: string }[])
+    .some((l) => !isIgnored(cfg, l.cwd) && !isUnder(l.cwd, claudeDir));
+  return !tracked && openedInUntracked(db, cfg, sessionId, openedIn);
+}
+
+/**
+ * The tab was opened in an untracked folder. Its hooks don't run there (no protocol, no cards, no status
+ * updates), so whatever live status it has is frozen from before the untrack. From its state, else from its
+ * transcript's folder name, counted only when it is exactly an untracked folder's.
+ */
+export function openedInUntracked(db: Db, cfg: Config, sessionId: string, openedIn?: string): boolean {
+  if (openedIn) return isIgnored(cfg, openedIn);
+  const t = (db.prepare("SELECT transcript FROM sessions WHERE id = ?").get(sessionId) as { transcript: string | null } | undefined)?.transcript;
+  const dir = t?.split(/[\\/]/).at(-2)?.toLowerCase();
+  return !!dir && cfg.ignore.some((p) => projectDirName(p).toLowerCase() === dir);
+}
+
 export type LiveTab = { id: string; title: string | null; live: string; since: string | null; detail: string | null; tasks: { id: number; title: string }[] };
 
 /** Every tracked tab's live status; "needs you" first (question, permission), then the rest by recency. */
-export function liveTabs(db: Db, states: Map<string, { active?: boolean; live?: string; liveAt?: string; liveDetail?: string }>): LiveTab[] {
+export function liveTabs(db: Db, cfg: Config, states: Map<string, { active?: boolean; live?: string; liveAt?: string; liveDetail?: string; cwd?: string }>): LiveTab[] {
   const title = db.prepare("SELECT title FROM sessions WHERE id = ?");
   const open = db.prepare(`SELECT t.id, t.title FROM task_sessions ts JOIN tasks t ON t.id = ts.task_id
     WHERE ts.session_id = ? AND t.status IN ('in_progress','testing') ORDER BY ts.last_at DESC LIMIT 3`);
   const rank = (l: string) => (l === "permission" ? 0 : l === "question" ? 1 : l === "working" ? 2 : l === "done" ? 3 : 4);
   const out: LiveTab[] = [];
   for (const [id, s] of states) {
-    if (!s.active || !s.live || s.live === "closed") continue;
+    if (!s.active || !s.live || s.live === "closed" || openedInUntracked(db, cfg, id, s.cwd)) continue;
     out.push({ id, title: (title.get(id) as { title: string | null } | undefined)?.title ?? null, live: s.live, since: s.liveAt ?? null, detail: s.liveDetail ?? null, tasks: open.all(id) as any[] });
   }
   return out.sort((a, b) => rank(a.live) - rank(b.live) || String(b.since).localeCompare(String(a.since)));

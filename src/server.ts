@@ -320,7 +320,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/api/status") {
     // For the VS Code extension: who needs you, and counts for the status bar. Cheap: no scan, no git.
-    const live = liveTabs(db, allStates());
+    const live = liveTabs(db, loadConfig(), allStates());
     const count = (s: string) => db.prepare("SELECT count(*) AS n FROM tasks WHERE status = ?").get(s) as { n: number };
     res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify({
       version,
@@ -353,7 +353,7 @@ const server = http.createServer((req, res) => {
       const showNoise = url.searchParams.get("noise") === "1";
       html = renderPage({
         stats: boardStats(db, sinceIso(range)),
-        live: liveTabs(db, allStates()),
+        live: liveTabs(db, cfg, allStates()),
         attention: attention(db, cfg, allStates()),
         tasks: taskCards(db, { sinceIso: sinceIso(range), seen: allStates() }),
         tabs: tabs(db, cfg, { sinceIso: sinceIso(range), showNoise }),

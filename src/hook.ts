@@ -101,6 +101,7 @@ async function main() {
   if (event === "SessionStart") {
     const st = loadState(sid);
     st.active = true;
+    if (p.cwd) st.cwd = String(p.cwd);
     saveState(sid, st);
     setLive(sid, "done"); // a fresh or resumed tab is waiting for your first message
     await ensureServer(cfg.port);
