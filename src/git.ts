@@ -5,7 +5,8 @@ import { normalizeDir } from "./transcript.ts";
 
 export function git(dir: string, args: string[], input?: string): string | null {
   try {
-    return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", input, stdio: ["pipe", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024, windowsHide: true });
+    return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", input, stdio: ["pipe", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024, windowsHide: true,
+      timeout: 60_000 }); // a git stuck on a lock or a network drive would hang the server and every MCP call
   } catch {
     return null;
   }

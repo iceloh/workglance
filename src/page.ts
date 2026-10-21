@@ -526,16 +526,28 @@ ${BOARD_JS}
 export const BOARD_JS = `
 const ORDER={planned:0,in_progress:1,testing:2,done:3,dropped:4};
 async function send(url,body){const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
-  if(!r.ok){const j=await r.json().catch(()=>({}));alert(j.error||"Could not save");return false}return true}
+  if(!r.ok){const j=await r.json().catch(()=>({}));notice("Not saved",j.error||"The local server didn't answer. Try again in a few seconds.");return false}return true}
+// The page's own dialogs, never the browser's alert/confirm/prompt (they block the page, look foreign, and
+// don't open at all in the VS Code panel).
+function dlg(title,text){document.querySelectorAll("dialog.wgdlg").forEach(x=>x.remove());const d=el("dialog","wgdlg");d.append(el("h3",null,title));
+  if(text)d.append(el("p",null,text));d.addEventListener("click",(e)=>{if(e.target===d)d.close()});d.addEventListener("close",()=>d.remove());return d}
+function notice(title,text){const d=dlg(title,text),row=el("div","dlgactions"),ok=el("button","btn primary","OK");ok.onclick=()=>d.close();
+  row.append(ok);d.append(row);document.body.append(d);d.showModal();ok.focus()}
+// Resolves to the reason typed (opts.reason), true (confirmed) or null (cancelled).
+function ask(title,text,okText,opts){opts=opts||{};return new Promise((res)=>{const d=dlg(title,text);let ta=null,answer=null;
+  if(opts.reason){ta=el("textarea","dlgreason");ta.rows=3;ta.placeholder=opts.reason;d.append(ta)}
+  const row=el("div","dlgactions"),no=el("button","btn","Cancel"),yes=el("button",opts.danger?"btn danger":"btn primary",okText);
+  no.onclick=()=>d.close();yes.onclick=()=>{if(ta&&!ta.value.trim()){ta.focus();return}answer=ta?ta.value.trim():true;d.close()};
+  d.addEventListener("close",()=>res(answer));row.append(no,yes);d.append(row);document.body.append(d);d.showModal();(ta||yes).focus()})}
 async function moveTo(id,to,from){let note;
-  if(to==="dropped"||ORDER[to]<ORDER[from]){note=prompt(to==="dropped"?"Why drop it? The tab will read this.":"Why move it back? The tab will read this.");if(!note||!note.trim())return}
+  if(to==="dropped"||ORDER[to]<ORDER[from]){note=await ask(to==="dropped"?"Drop this card?":"Move it back?","Say why: the tab reads this on its next prompt.",to==="dropped"?"Drop it":"Move it back",{reason:"Why?",danger:to==="dropped"});if(!note)return}
   if(await send("/api/tasks/"+id+"/move",{status:to,note}))location.reload()}
 // A vscode:// link lands in the last focused VS Code window, which may not have that tab (it opens a blank
 // one). So the server hands the click to the window that has the tab's folder. When none can, our own dialog
 // says why; "open in the last window" goes through the server too, never through the browser's
 // "Open Visual Studio Code?" prompt.
 const openTab=(session,force)=>fetch("/api/open",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({session,force})}).then(r=>r.json()).catch(()=>({reason:"server"}));
-function tabDialog(session,r){let d=document.getElementById("tabdlg");if(d)d.remove();d=el("dialog");d.id="tabdlg";
+function tabDialog(session,r){let d=document.getElementById("tabdlg");if(d)d.remove();d=el("dialog","wgdlg");d.id="tabdlg";
   const title=r.reason==="no_windows"?"VS Code isn't connected yet":r.reason==="no_match"?"This tab's window isn't open":"Workglance isn't answering";
   const text=r.reason==="no_windows"?"Run “Developer: Reload Window” once in each VS Code window. After that, clicking a tab opens it in the right window."
     :r.reason==="no_match"?"No open VS Code window has this folder:":"The local server didn't answer. It restarts by itself; try again in a few seconds.";
@@ -576,7 +588,7 @@ async function sendReview(id){const comments=reviewComments();if(!comments.lengt
   reviewStatus("Sent. The tab reads your review on its next prompt; it's on the timeline below.","ok");setTimeout(()=>location.reload(),1500)}
 async function post(url,body){if(await send(url,body))location.reload()}
 function dismissItem(b,days){post("/api/attention/dismiss",{key:b.dataset.key,days:days||null})}
-function untrackPath(b){if(confirm("Untrack "+b.dataset.path+"?\\n\\nWorkglance stops looking at this folder (no cards, nudges or git checks) and forgets what it stored about it. Tasks stay. You can undo it in Settings."))post("/api/untrack",{path:b.dataset.path})}
+async function untrackPath(b){if(await ask("Untrack "+b.dataset.path+"?","Workglance stops looking at this folder (no cards, nudges or git checks) and forgets what it stored about it. Its cards stay. You can undo it in Settings.","Yes, untrack",{danger:true}))post("/api/untrack",{path:b.dataset.path})}
 function retrackPath(b){post("/api/retrack",{path:b.dataset.path})}
 async function comment(id,form){const note=form.note.value.trim();if(note&&await send("/api/tasks/"+id+"/comment",{note}))location.reload();return false}
 `;
@@ -605,11 +617,12 @@ const CSS = `
 .repo ul{margin:0 0 4px;padding-left:18px}.repo li{margin:4px 0}.repo.needs{border-color:#f97316}.repo.needs h3{color:#f97316}
 .res summary{cursor:pointer;list-style:none}.res summary::-webkit-details-marker{display:none}.res summary::after{content:" …";color:var(--accent)}.res[open] summary{display:none}
 .digestsum{border:1px solid var(--line);border-radius:12px;padding:6px 16px 12px;background:var(--card);line-height:1.55}.digestsum p{margin:10px 0}
-#tabdlg{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--text);padding:22px 24px;width:min(460px,calc(100vw - 32px));box-shadow:0 20px 60px rgba(0,0,0,.45)}
-#tabdlg::backdrop{background:rgba(10,12,16,.55);backdrop-filter:blur(2px)}
-#tabdlg h3{margin:0 0 8px;font-size:16px}#tabdlg p{margin:0 0 10px;color:var(--muted);line-height:1.5;font-size:13px}
-#tabdlg code{display:block;font-size:12px;background:var(--chip);border-radius:8px;padding:8px 10px;overflow-wrap:anywhere;margin-bottom:10px}
-#tabdlg .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wgdlg{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--text);padding:22px 24px;width:min(460px,calc(100vw - 32px));box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.wgdlg::backdrop{background:rgba(10,12,16,.55);backdrop-filter:blur(2px)}
+.wgdlg h3{margin:0 0 8px;font-size:16px}.wgdlg p{margin:0 0 10px;color:var(--muted);line-height:1.5;font-size:13px}
+.wgdlg code{display:block;font-size:12px;background:var(--chip);border-radius:8px;padding:8px 10px;overflow-wrap:anywhere;margin-bottom:10px}
+.wgdlg .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wgdlg .dlgreason{width:100%;box-sizing:border-box;font:inherit;margin-top:4px}
 .dlgactions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .mini{font:inherit;font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer}.mini:hover{color:var(--text);border-color:var(--accent)}
 .live .acts{margin-left:auto;display:flex;gap:4px}

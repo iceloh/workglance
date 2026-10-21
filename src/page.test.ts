@@ -35,6 +35,12 @@ test("BOARD_JS: the board's browser script parses (an error there silently break
   assert.doesNotThrow(() => new Function(BOARD_JS));
 });
 
+test("the pages use their own dialogs, never the browser's alert / confirm / prompt (none opens in the VS Code panel)", () => {
+  const pages = [BOARD_JS, renderSettingsPage([])];
+  for (const js of pages) assert.doesNotMatch(js, /(?<![\w.])(alert|confirm|prompt)\(/);
+  assert.match(BOARD_JS, /function ask\(/);
+});
+
 test("review: guidance and results inline, never a browser alert", () => {
   const review = BOARD_JS.slice(BOARD_JS.indexOf("async function loadDiff"), BOARD_JS.indexOf("async function post("));
   assert.ok(review.length > 0);

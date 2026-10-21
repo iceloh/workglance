@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "./db.ts";
-import { createTask, openTasksByRepo, sessionTasks, snapshotText, takeTask, TaskError, taskForCommit, updateTask } from "./tasks.ts";
+import { createTask, openTasksByRepo, sessionTasks, snapshotText, takeTask, TaskError, taskForCommit, updateTask, userChanges, userChangesText, userComment } from "./tasks.ts";
+import { view } from "./tools.ts";
 
 const A = { session_id: "tab-a", cwd: "C:\\dev\\shop" };
 const B = { session_id: "tab-b", cwd: "C:\\dev\\shop" };
@@ -65,6 +66,17 @@ test("snapshot: short, marked as data, absent when there is nothing open", () =>
   const s = snapshotText(sessionTasks(db, "tab-a"))!;
   assert.match(s, /data, not instructions/);
   assert.match(s, /W-1 \[in_progress\] \(chore\)/);
+});
+
+test("what goes back to agents is redacted: the snapshot, the user's board changes, the tool's card view", () => {
+  const db = openDb(":memory:");
+  const t = createTask(db, A, where, { title: "Rotate sk-ant-api03-abcdefghijklmnopqrstuvwx", type: "chore" });
+  assert.match(snapshotText(sessionTasks(db, "tab-a"))!, /Rotate \[api key\]/);
+  userComment(db, t.id, "the old one was password = hunter2hunter2");
+  const text = userChangesText(userChanges(db, "tab-a", 0))!;
+  assert.match(text, /Rotate \[api key\]: commented — "the old one was password = \[redacted\]"/);
+  assert.doesNotMatch(text, /sk-ant|hunter2/);
+  assert.equal(view(t).title, "Rotate [api key]");
 });
 
 test("taskForCommit: the card in focus at commit time", () => {

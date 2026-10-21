@@ -257,3 +257,10 @@ Measured: each hook call ~190 ms (Node startup); the per-edit hook is async and 
 - **A task is placed in a worktree only once git knows it** (21/10/2026): a tab edits a worktree it just
   made before the git refresh records it, and the task was placed there with no repo or branch, for good (W-55).
   Looked up by `pathKey`: the two paths come from different git commands and can differ in case on Windows/macOS.
+- **First invariant scan** (21/10/2026, `/invariant-scan`): card titles and the user's notes reached agents
+  unredacted (the prompt snapshot, the user's board changes, `list_tasks`); now redacted like everything else
+  given back. Two tests read the real `~/.workglance` (config and tab states are resolved at import): they
+  import `src/test-home.ts` first. `git` calls get a 60 s timeout (a stuck git would hang the server and every
+  MCP call), `doctor`/`install` calls to `claude` and `code` get timeouts and go through the shell (`claude` is
+  a `.cmd`). The board's `alert`/`confirm`/`prompt` became the page's own dialogs: the browser's block the
+  page and don't open in the VS Code panel at all.

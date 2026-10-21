@@ -1,3 +1,4 @@
+import "./test-home.ts"; // before anything that reads WORKGLANCE_HOME
 import test from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "./db.ts";

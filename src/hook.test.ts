@@ -77,7 +77,9 @@ test("scratchpad, temp and ~/.claude edits are not work: no nudge (the PROFILE P
   h.run("PostToolUse", { scratchpad_dir: scratch, tool_name: "Write", tool_input: { file_path: scratch + "\\debug.mts" } });
   h.run("PostToolUse", { tool_name: "Write", tool_input: { file_path: "C:/Users/JaneDoe/AppData/Local/Temp/x.json" } });
   h.run("PostToolUse", { tool_name: "Edit", tool_input: { file_path: join(homedir(), ".claude", "memory", "MEMORY.md") } });
-  assert.equal(h.run("Stop", { stop_hook_active: false }), null);
+  h.env.CLAUDE_CONFIG_DIR = "D:\\claude-config"; // outside any temp folder, so only this rule can make it scratch
+  h.run("PostToolUse", { tool_name: "Edit", tool_input: { file_path: "D:\\claude-config\\projects\\p\\memory\\x.md" } });
+  assert.equal(h.run("Stop", { stop_hook_active: false }), null, "Claude's own files, wherever CLAUDE_CONFIG_DIR puts them, are not work");
   h.run("PostToolUse", { scratchpad_dir: scratch, tool_name: "Edit", tool_input: { file_path: "C:\\dev\\shop\\apps\\api\\x.ts" } });
   assert.equal(h.run("Stop", { stop_hook_active: false }).decision, "block", "a repo edit still counts");
 });

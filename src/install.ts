@@ -70,7 +70,7 @@ function rewrite(change: (s: Settings) => Settings): string {
 function claude(args: string[]): string {
   // One command string (fixed words and our own URL, nothing typed by anyone): `claude` is a .cmd on Windows.
   const line = ["claude", ...args].map((a) => (/^[\w:/.@=-]+$/.test(a) ? a : `"${a.replace(/"/g, "")}"`)).join(" ");
-  try { return execSync(line, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); } catch (e: any) { return String(e?.stderr ?? e?.message ?? e); }
+  try { return execSync(line, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: 60_000 }); } catch (e: any) { return String(e?.stderr ?? e?.message ?? e); }
 }
 
 /** Where this copy of workglance lives, for the VS Code extension (it starts the server from here). */

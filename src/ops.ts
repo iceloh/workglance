@@ -32,7 +32,8 @@ export async function doctor(): Promise<Check[]> {
     const missing = want.filter((e) => !events.includes(e));
     add("hooks", !missing.length, missing.length ? `missing: ${missing.join(", ")} (run workglance install)` : `${events.length} events → ${HOOK}`);
   } catch (e) { add("hooks", false, `cannot read Claude settings: ${(e as Error).message}`); }
-  const mcp = spawnSync("claude", ["mcp", "get", "workglance"], { encoding: "utf8", windowsHide: true });
+  // One fixed command string through the shell: `claude` is a .cmd on Windows, which spawn can't run without one.
+  const mcp = spawnSync("claude mcp get workglance", { encoding: "utf8", windowsHide: true, shell: true, timeout: 20_000 });
   add("mcp", mcp.status === 0 && /127\.0\.0\.1/.test(mcp.stdout), mcp.status === 0 ? (mcp.stdout.match(/URL:\s*(\S+)/)?.[1] ?? "registered") : "not registered (run workglance install)");
   try {
     const r = await fetch(`${base()}/api/status`, { signal: AbortSignal.timeout(3000) });
@@ -50,7 +51,7 @@ export async function doctor(): Promise<Check[]> {
   add("backups", backups.length > 0, backups.length ? `${backups.length} kept, newest ${backups.at(-1)}` : "none yet (the server makes one a day)");
   try { const i = JSON.parse(readFileSync(join(WORKGLANCE_HOME, "install.json"), "utf8")); add("install.json", existsSync(i.cli), `${i.cli}`); }
   catch { add("install.json", false, "missing (run workglance install; the VS Code extension needs it)"); }
-  const ext = spawnSync("code --list-extensions", { encoding: "utf8", windowsHide: true, shell: true });
+  const ext = spawnSync("code --list-extensions", { encoding: "utf8", windowsHide: true, shell: true, timeout: 20_000 });
   add("vscode extension", /workglance\.workglance/i.test(ext.stdout ?? ""), /workglance\.workglance/i.test(ext.stdout ?? "") ? "installed" : "not installed (optional)");
   // Things Anthropic doesn't document as stable: say so when they change, instead of going quiet.
   const newest = newestTranscript();

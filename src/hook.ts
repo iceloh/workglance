@@ -75,7 +75,8 @@ export function isScratch(file: string, p: Payload, cfg: ReturnType<typeof loadC
     // Any temp folder is scratch, except in an eval run: its throwaway repos live in temp, and treating them
     // as scratch silently disabled the nudge there (two "agent forgot the card" failures were this).
     || (process.env.WORKGLANCE_EVAL !== "1" && (tempDirs().some((t) => isUnder(file, t)) || /[\\/]appdata[\\/]local[\\/]temp[\\/]/i.test(file)))
-    || isUnder(file, join(homedir(), ".claude"))
+    // Claude's own files (memory, settings): ~/.claude, or wherever CLAUDE_CONFIG_DIR puts them.
+    || [join(homedir(), ".claude"), process.env.CLAUDE_CONFIG_DIR].some((d) => !!d && isUnder(file, d))
     || isIgnored(cfg, file);
 }
 

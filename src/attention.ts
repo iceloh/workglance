@@ -2,6 +2,7 @@
 import type { Db } from "./db.ts";
 import type { Config } from "./config.ts";
 import { isIgnored } from "./config.ts";
+import { pathKey } from "./transcript.ts";
 import type { TabState } from "./state.ts";
 
 /**
@@ -46,7 +47,7 @@ export function attentionItems(now: number, f: {
     if (a <= LIMITS.staleWorktreeMs) continue;
     const what = [w.dirty ? `${w.dirty} uncommitted` : "", w.ahead ? `${w.ahead} unpushed` : ""].filter(Boolean).join(", ");
     out.push({ kind: "stale_worktree", text: `${w.path}${w.branch ? ` (${w.branch})` : ""}: ${what}, ${Number.isFinite(a) ? `untouched for ${days(a)}` : "no tab ever worked here"}`, href: "/#undone", ageMs: Number.isFinite(a) ? a : 1e15,
-      key: `stale_worktree:${w.path.toLowerCase()}:${w.dirty}:${w.ahead}`, path: w.path });
+      key: `stale_worktree:${pathKey(w.path)}:${w.dirty}:${w.ahead}`, path: w.path });
   }
   for (const t of f.waiting) {
     const a = now - Date.parse(t.since);
