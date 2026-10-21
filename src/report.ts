@@ -132,7 +132,7 @@ function cardOf(db: Db, t: any, seen: SeenMap = new Map()): TaskCard {
   const note = db.prepare("SELECT note FROM task_events WHERE task_id = ? AND note IS NOT NULL ORDER BY id DESC LIMIT 1").get(t.id) as { note: string } | undefined;
   const act = taskActivity(db, t.id);
   return {
-    id: t.id, title: t.title, type: t.type, status: t.status, branch: t.branch, worktree: t.worktree, repo: t.repo_name ?? null,
+    id: t.id, title: t.title, type: t.type, status: t.status, branch: t.branch, worktree: t.worktree, repo: t.repo_name ?? t.repo ?? null,
     updatedAt: t.updated_at, tabs, commits, lastNote: note?.note ?? null,
     warning: t.status === "dropped" ? null : verification(t.status, commits), result: t.result,
     edits: act.edits, lastActivityAt: [act.lastAt, t.updated_at].filter(Boolean).sort().at(-1) ?? null, placeSource: t.place_source,

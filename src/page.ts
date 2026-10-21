@@ -33,6 +33,12 @@ export function short(p: string, home = homedir()): string {
 }
 const STAGE: Record<Stage, string> = { done: "Done", testing: "Testing", in_progress: "In progress", local: "Local" };
 
+/** A repo by name, as the repo filter shows and matches it: its folder's last part. */
+export const repoName = (repo: string | null | undefined): string => repo ? repo.split(/[\\/]/).filter(Boolean).at(-1) ?? repo : "";
+/** What the repo and tab filters match on, carried by each card (one value per line). */
+const filterData = (repos: (string | null | undefined)[], tabs: string[]) =>
+  ` data-repos="${esc([...new Set(repos.map(repoName).filter(Boolean))].join("\n").toLowerCase())}" data-tabs="${esc(tabs.join("\n"))}"`;
+
 function tabCard(t: TabView): string {
   const name = t.title ? esc(t.title) : `<span class="muted">unnamed tab</span>`;
   const was = t.formerTitles.length ? `<div class="was">was: ${t.formerTitles.slice(0, 4).map(esc).join(" · ")}${t.formerTitles.length > 4 ? " …" : ""}</div>` : "";
@@ -44,7 +50,7 @@ function tabCard(t: TabView): string {
     `<li><span class="badge ${c.stage}">${STAGE[c.stage]}</span> <code>${esc(c.sha.slice(0, 9))}</code> ${esc(c.subject)} <span class="muted">${esc(c.repo)} · ${when(c.at)}${c.copies > 1 ? " · rebased" : ""}</span></li>`).join("");
   const prompts = t.prompts.map((p) => `<li><span class="muted">${when(p.at)}</span> ${esc(p.text.length > 280 ? p.text.slice(0, 280) + "…" : p.text)}</li>`).join("");
   const text = [t.title, ...t.formerTitles, ...t.prompts.map((p) => p.text), ...t.commits.map((c) => c.subject), ...t.places.map((p) => p.worktree + " " + p.branch)].join(" ").toLowerCase();
-  return `<article class="card" data-text="${esc(text)}">
+  return `<article class="card" data-text="${esc(text)}"${filterData(t.places.map((p) => p.repo), [t.id])}>
   <header><h3>${name}</h3><span class="muted">${ago(t.lastAt)} · ${t.promptCount} prompts</span></header>
   ${was}
   <div class="places">${places}</div>
@@ -68,7 +74,7 @@ function taskCard(t: TaskCard, live: Map<string, string> = new Map()): string {
   }).join(" · ");
   const text = [t.title, t.type, t.branch, t.worktree, ...t.tabs.map((s) => s.title), t.lastNote].join(" ").toLowerCase();
   const activity = [t.edits ? `${t.edits} edit${t.edits > 1 ? "s" : ""}` : "", money(t.cost), t.lastActivityAt ? `active ${ago(t.lastActivityAt)}` : ""].filter(Boolean).join(" · ");
-  return `<article class="card task" draggable="true" data-id="${t.id}" data-status="${esc(t.status)}" data-text="${esc(text)}">
+  return `<article class="card task" draggable="true" data-id="${t.id}" data-status="${esc(t.status)}" data-text="${esc(text)}"${filterData([t.repo], t.tabs.map((s) => s.id))}>
   <header><h3><a href="/task/${t.id}"><span class="muted">W-${t.id}</span> ${esc(t.title)}</a></h3></header>
   ${t.unseen ? `<div class="unseen" title="Delivered on the tab's next prompt">● your change is not seen by the tab yet</div>` : ""}
   <div class="places"><span class="chip type">${esc(t.type)}</span>${t.worktree ? `<span class="chip" title="${esc(t.worktree)}">${esc(short(t.worktree))}${t.branch ? ` <b>${esc(t.branch)}</b>` : ""}</span>` : ""}</div>
@@ -128,13 +134,13 @@ function board(tasks: TaskCard[], live: Map<string, string>): string {
   if (!tasks.length) return `<div class="empty">No tasks yet. Tabs register their main work as they go.</div>`;
   return `<div class="board">${COLUMNS.map(([k, label]) => {
     const col = tasks.filter((t) => t.status === k);
-    return `<section class="col" data-status="${k}"><h4>${label} <span class="muted">${col.length}</span></h4>${col.map((t) => taskCard(t, live)).join("")}</section>`;
+    return `<section class="col" data-status="${k}"><h4>${label} <span class="muted n">${col.length}</span></h4>${col.map((t) => taskCard(t, live)).join("")}</section>`;
   }).join("")}</div>`;
 }
 
 function undoneRow(u: UndoneView): string {
   const what = [u.dirty ? `${u.dirty} uncommitted file${u.dirty > 1 ? "s" : ""}` : "", u.ahead ? `${u.ahead} commit${u.ahead > 1 ? "s" : ""} not pushed` : ""].filter(Boolean).join(" · ");
-  return `<tr><td>${esc(u.repo)}</td><td title="${esc(u.path)}">${esc(short(u.path))}</td><td><b>${esc(u.branch ?? "")}</b></td><td>${what}${u.upstream ? "" : ` <span class="muted">(no upstream)</span>`}</td>
+  return `<tr class="undone"${filterData([u.repo], [])}><td>${esc(u.repo)}</td><td title="${esc(u.path)}">${esc(short(u.path))}</td><td><b>${esc(u.branch ?? "")}</b></td><td>${what}${u.upstream ? "" : ` <span class="muted">(no upstream)</span>`}</td>
   <td>${u.lastTab ? `${esc(u.lastTab.title ?? "unnamed tab")} <span class="muted">${ago(u.lastTab.at)}</span>` : `<span class="muted">no tab</span>`}</td>
   <td><button class="mini" data-path="${esc(u.path)}" onclick="untrackPath(this)" title="Workglance stops looking at this folder: no cards, nudges or git checks. Undo in Settings.">Untrack</button></td></tr>`;
 }
@@ -372,14 +378,21 @@ ${item(`<span class="est">${dollars(s.costUsd)}</span>`, "API est.", `All tabs' 
 }
 
 export function renderPage(v: { stats: BoardStats; live: LiveTab[]; attention: Attention[]; tasks: TaskCard[]; tabs: TabView[]; undone: UndoneView[]; range: string; ranges: string[]; version: number; git: { at: number; running: boolean; error: string | null }; health: Health }): string {
-  const rangeLinks = v.ranges.map((r) => `<a href="/?range=${r}" class="${r === v.range ? "on" : ""}">${r}</a>`).join("");
+  const rangeLinks = v.ranges.map((r) => `<a href="/?range=${r}" class="period${r === v.range ? " on" : ""}">${r}</a>`).join("");
   const gitNote = v.git.running ? "checking git…" : v.git.at ? `git checked ${ago(new Date(v.git.at).toISOString())}` : "git not checked yet";
   const health = `${v.health.tracked} tab${v.health.tracked === 1 ? "" : "s"} tracked · ${v.health.nudges} nudge${v.health.nudges === 1 ? "" : "s"} sent`;
-  return shell("Workglance", `${topNav("board", `<input id="q" placeholder="Filter this page…" autocomplete="off"><nav class="ranges">${rangeLinks}</nav><span class="muted">${gitNote}${v.git.error ? " · <b>git error</b>" : ""} · ${health}</span>`)}
+  // The filters offer what is on this page: repos of its cards, tabs and worktrees; tabs, most recent first.
+  const repos = [...new Set([...v.tasks.map((t) => t.repo), ...v.tabs.flatMap((t) => t.places.map((p) => p.repo)), ...v.undone.map((u) => u.repo)]
+    .map(repoName).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const tabOpts = new Map<string, string>();
+  for (const t of [...v.tabs, ...v.tasks.flatMap((k) => k.tabs)]) if (!tabOpts.has(t.id)) tabOpts.set(t.id, t.title ?? t.id.slice(0, 8));
+  const filters = `<select id="frepo" class="filter" aria-label="Filter by repo"><option value="">All repos</option>${repos.map((r) => `<option value="${esc(r.toLowerCase())}">${esc(r)}</option>`).join("")}</select>
+<select id="ftab" class="filter" aria-label="Filter by tab"><option value="">All tabs</option>${[...tabOpts].map(([id, title]) => `<option value="${esc(id)}">${esc(title)}</option>`).join("")}</select>`;
+  return shell("Workglance", `${topNav("board", `<input id="q" placeholder="Filter this page…" autocomplete="off">${filters}<nav class="ranges">${rangeLinks}</nav><span class="muted">${gitNote}${v.git.error ? " · <b>git error</b>" : ""} · ${health}</span>`)}
 <div class="layout">${rail(v.live)}<main>
 ${statsStrip(v.stats, v.range)}
 ${attentionPanel(v.attention)}
-<h2>Work <span class="muted">(${v.tasks.length} tasks)</span></h2>
+<h2>Work <span class="muted" id="worktotal" data-n="${v.tasks.length}">(${v.tasks.length} tasks)</span></h2>
 ${board(v.tasks, new Map(v.live.map((t) => [t.id, t.live])))}
 <h2 id="undone">Still undone <span class="muted">(${v.undone.length} worktrees with uncommitted or unpushed work)</span></h2>
 ${v.undone.length ? `<table>${v.undone.map(undoneRow).join("")}</table>` : `<div class="empty">Nothing uncommitted or unpushed.</div>`}
@@ -387,10 +400,20 @@ ${v.undone.length ? `<table>${v.undone.map(undoneRow).join("")}</table>` : `<div
 <div class="grid">${v.tabs.map(tabCard).join("") || `<div class="empty">No tabs in this period.</div>`}</div>
 </main></div>
 <script>
-const q=document.getElementById("q");
-q.addEventListener("input",()=>{const s=q.value.trim().toLowerCase();for(const c of document.querySelectorAll(".card"))c.style.display=!s||c.dataset.text.includes(s)?"":"none"});
+const q=document.getElementById("q"),fr=document.getElementById("frepo"),ft=document.getElementById("ftab");
+// Repo and tab filters live in the URL: they survive the auto-reload and a change of period.
+const params=new URLSearchParams(location.search);fr.value=params.get("repo")||"";ft.value=params.get("tab")||"";
+function applyFilters(){const s=q.value.trim().toLowerCase(),r=fr.value,t=ft.value;
+  const has=(e,k,x)=>(e.dataset[k]||"").split("\\n").includes(x);
+  for(const c of document.querySelectorAll(".card,tr.undone"))c.style.display=(!s||!("text" in c.dataset)||c.dataset.text.includes(s))&&(!r||has(c,"repos",r))&&(!t||has(c,"tabs",t))?"":"none";
+  for(const col of document.querySelectorAll(".col[data-status]"))col.querySelector(".n").textContent=[...col.querySelectorAll(".task")].filter(c=>c.style.display!=="none").length;
+  const wt=document.getElementById("worktotal");if(wt){const all=Number(wt.dataset.n),shown=[...document.querySelectorAll(".task")].filter(c=>c.style.display!=="none").length;wt.textContent="("+(shown===all?all:shown+" of "+all)+" tasks)"}
+  fr.classList.toggle("on",!!r);ft.classList.toggle("on",!!t);
+  const keep=(u)=>{r?u.searchParams.set("repo",r):u.searchParams.delete("repo");t?u.searchParams.set("tab",t):u.searchParams.delete("tab");return u};
+  history.replaceState(null,"",keep(new URL(location.href)));for(const a of document.querySelectorAll("a.period"))a.href=keep(new URL(a.href))}
+q.addEventListener("input",applyFilters);fr.addEventListener("change",applyFilters);ft.addEventListener("change",applyFilters);applyFilters();
 let v=${v.version};
-setInterval(async()=>{try{const r=await fetch("/api/version");const j=await r.json();if(j.version!==v&&document.activeElement!==q&&!document.querySelector("details[open]")&&!dragging)location.reload()}catch{}},20000);
+setInterval(async()=>{try{const r=await fetch("/api/version");const j=await r.json();if(j.version!==v&&document.activeElement!==q&&!(document.activeElement&&document.activeElement.tagName==="SELECT")&&!document.querySelector("details[open]")&&!dragging)location.reload()}catch{}},20000);
 let dragging=null;
 for(const c of document.querySelectorAll(".task[draggable]")){
   c.addEventListener("dragstart",(e)=>{dragging=c;e.dataTransfer.setData("text/plain",c.dataset.id);c.classList.add("dragging")});
@@ -542,6 +565,8 @@ mark{background:rgba(254,230,0,.55);color:inherit;border-radius:3px;padding:0 2p
 *{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
 .top{position:sticky;top:0;z-index:2;display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:12px 20px;background:var(--bg);border-bottom:1px solid var(--line)}
 .top h1{font-size:17px;margin:0}.top input{flex:1;min-width:180px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text)}
+.top select.filter{max-width:140px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);font:inherit;font-size:13px;color-scheme:light dark}
+.top select.filter.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .ranges a{padding:4px 9px;border-radius:6px;color:var(--muted);text-decoration:none}.ranges a.on{background:var(--accent);color:#fff}
 main{padding:16px 20px;max-width:1500px;margin:0 auto}h2{font-size:15px;margin:22px 0 10px}
 table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}

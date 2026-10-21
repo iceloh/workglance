@@ -1,6 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BOARD_JS, LANGUAGES, renderSettingsPage, short } from "./page.ts";
+import { BOARD_JS, LANGUAGES, renderPage, renderSettingsPage, repoName, short } from "./page.ts";
+import { openDb } from "./db.ts";
+import { createTask } from "./tasks.ts";
+import { boardStats, taskCards } from "./report.ts";
+
+test("board filters: repos and tabs on the page are offered, each card carries what they match, the script parses", () => {
+  const db = openDb(":memory:");
+  db.prepare("INSERT INTO sessions(id, title, titles) VALUES ('tab-1', 'CHECKOUT', '[]')").run();
+  createTask(db, { session_id: "tab-1", cwd: "C:\\dev\\Shop" }, { repo: "C:\\dev\\Shop", worktree: "C:\\dev\\Shop", branch: "main" }, { title: "Fix cart", type: "bug" });
+  const html = renderPage({ stats: boardStats(db), live: [], attention: [], tasks: taskCards(db, { seen: new Map() }), tabs: [],
+    undone: [{ path: "C:\\dev\\api", repo: "api", branch: "main", dirty: 1, ahead: 0, upstream: "origin/main", lastTab: null }],
+    range: "7d", ranges: ["today", "7d"], version: 1, git: { at: 0, running: false, error: null }, health: { tracked: 1, nudges: 0, noiseHidden: false } });
+  for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(m[1]!));
+  assert.match(html, /<option value="api">api<\/option><option value="shop">Shop<\/option>/);
+  assert.match(html, /<option value="tab-1">CHECKOUT<\/option>/);
+  assert.match(html, /class="card task"[^>]*data-repos="shop" data-tabs="tab-1"/);
+  assert.match(html, /<tr class="undone" data-repos="api"/);
+  assert.match(html, /class="period on">7d</, "period links are the ones that keep the filters");
+  assert.equal(repoName("C:\\dev\\agentmaker\\"), "agentmaker");
+});
 
 test("settings page: its script parses; time pickers, a language list with Automatic first, escaped values", () => {
   const html = renderSettingsPage(["C:/tmp/x"], { times: ["08:00", "18:30"], summary: true, language: "Klingon <b>" });
