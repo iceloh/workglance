@@ -92,7 +92,8 @@ Nothing to add to your `CLAUDE.md`: every session gets Workglance's instructions
   explanations, small edits); when to move a card; what a result must say; which board "the cards" means when
   there is another tracker; when to search past work. The full text is in [`src/protocol.ts`](src/protocol.ts).
 - **On every prompt:** the tab's open cards, and any change you made on the board that the tab hasn't seen.
-- **At the end of a turn** that changed code with no card: a one-line reminder (at most 8 per session).
+- **At the end of a turn** that changed code with no card, or that left an investigation it opened still in
+  progress: a one-line reminder (at most 8 per session). An investigation can't be closed without its findings.
 - **With each tool:** its description ([`src/mcp.ts`](src/mcp.ts)).
 
 Card titles, notes and search results written by agents reach other agents marked as data, never as
