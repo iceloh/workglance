@@ -35,7 +35,7 @@ const COMMITS = z.array(z.string().regex(/^[0-9a-fA-F]{7,40}$/)).max(20).optiona
   .describe("SHAs of commits that belong to this task when timing can't tell: you committed before creating the card, or under another card");
 
 function build(db: Db): McpServer {
-  const s = new McpServer({ name: "workglance", version: "0.9.1" });
+  const s = new McpServer({ name: "workglance", version: "0.9.2" });
   s.tool("create_task", "Register a MAIN piece of work (feature, notable fix, important bug, agreed work, an investigation that produces findings). Not for questions or small edits.",
     {
       title: z.string().min(3).max(200).describe("Imperative, in the language of the conversation"),
