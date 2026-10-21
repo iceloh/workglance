@@ -225,7 +225,7 @@ ${columnsPanel(columns)}
 <section class="panel">
 <h3>Untracked folders</h3>
 <p class="muted">Workglance doesn't look at these: tabs working there get no protocol, cards or nudges, nothing from them is stored, and no git command runs there. Their cards stay.</p>
-<div class="untrackbar"><button type="button" class="btn primary" onclick="openBrowser()">Browse your PC…</button>
+<div class="untrackbar"><button type="button" class="btn primary" id="pickbtn" onclick="pickFolder()">Choose a folder…</button>
 <input id="foldersearch" type="search" placeholder="…or search the folders your tabs worked in, or paste a path" autocomplete="off" oninput="showFolders()" onfocus="showFolders()"></div>
 <div id="browser" class="browser" hidden>
 <div class="browsehead"><span id="roots" class="roots"></span><button type="button" class="mini" id="upbtn" onclick="cur&&browse(cur.parent)">↑ Up</button>
@@ -266,6 +266,14 @@ async function saveColumns(f){const s=document.getElementById("columnsstatus");
 // Folder browser: any folder of this PC, listed by the local server (names of subfolders only).
 let cur=null;
 const unquote=(s)=>s.trim().replace(/^"(.*)"$/,"$1").trim();
+// "Choose a folder…": the system's own folder window (opened by the local server); the in-page browser only
+// where the system has none (Linux without zenity or kdialog).
+async function pickFolder(){const b=document.getElementById("pickbtn"),box=document.getElementById("folderresults");
+  b.disabled=true;b.textContent="Choose the folder in the window that opened…";box.textContent="";
+  const j=await fetch("/api/pick-folder",{method:"POST",headers:{"content-type":"application/json"},body:"{}"}).then(r=>r.json()).catch(()=>({unavailable:true}));
+  b.disabled=false;b.textContent="Choose a folder…";
+  if(j.path){box.append(folderRow(j.path.split(/[\\\\/]/).filter(Boolean).pop()||j.path,j.path,"chosen just now"));askUntrack(j.path,box.lastChild);return}
+  if(j.unavailable)openBrowser()}
 function openBrowser(){document.getElementById("browser").hidden=false;if(!cur)browse(null)}
 function closeBrowser(){document.getElementById("browser").hidden=true}
 async function browse(path){const list=document.getElementById("browselist");list.textContent="Loading…";

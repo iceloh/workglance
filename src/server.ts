@@ -26,6 +26,7 @@ import { metrics } from "./metrics.ts";
 import { renderMetricsPage, renderSettingsPage } from "./page.ts";
 import { dismiss } from "./attention.ts";
 import { browseFolder, knownFolders, retrack, untrack } from "./untrack.ts";
+import { pickFolder } from "./picker.ts";
 import { isIgnored, parseColumnRules, parseLanguage, setConfig, untrackedFolders } from "./config.ts";
 
 /** The latest eval run (from `workglance eval`), if any. */
@@ -255,6 +256,13 @@ const server = http.createServer((req, res) => {
       db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)").run(`digest_summary:${date}`, text);
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ summary: text }));
     }).catch((e) => res.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ error: e instanceof Error ? e.message : "failed" })));
+    return;
+  }
+  if (url.pathname === "/api/pick-folder") {
+    // Settings' "Choose a folder…": the system's own folder window, on this machine, while the user picks.
+    if (req.method !== "POST" || !String(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(405).end(); return; }
+    readJson(req).then(() => pickFolder()).then((r) => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(r)))
+      .catch(() => res.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ unavailable: true })));
     return;
   }
   if (url.pathname === "/api/settings/columns") {
