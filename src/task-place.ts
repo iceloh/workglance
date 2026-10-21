@@ -20,7 +20,7 @@ export function choosePlace(evidence: Evidence[]): string | null {
 
 /** Recomputes the place of open tasks and of tasks closed in the last 2 days. Returns how many moved. */
 export function placeTasks(db: Db): number {
-  const tasks = db.prepare(`SELECT id, worktree, created_at, started_at, closed_at FROM tasks
+  const tasks = db.prepare(`SELECT id, worktree, repo, branch, created_at, started_at, closed_at FROM tasks
     WHERE status IN ('planned','in_progress','testing') OR closed_at >= ?`).all(new Date(Date.now() - 2 * 86400_000).toISOString()) as any[];
   const edits = db.prepare(`SELECT d.worktree, count(*) AS n FROM edits e JOIN task_sessions ts ON ts.session_id = e.session_id
     JOIN dirs d ON d.path = e.dir WHERE ts.task_id = ? AND e.at >= ? AND e.at <= ? AND d.worktree IS NOT NULL GROUP BY d.worktree`);
@@ -39,9 +39,12 @@ export function placeTasks(db: Db): number {
       byWt.set(r.worktree, e);
     }
     const place = choosePlace([...byWt.values()]);
-    if (!place || place === t.worktree) continue;
+    if (!place) continue;
+    // A worktree the tab just made is edited before git has looked at it: wait for that, instead of
+    // placing the task with no repo (W-55); a task placed that way before is completed here.
     const w = wt.get(place) as { path: string; repo: string; branch: string | null } | undefined;
-    move.run(place, w?.repo ?? null, w?.branch ?? null, t.id);
+    if (!w || (place === t.worktree && t.repo)) continue;
+    move.run(place, w.repo, w.branch, t.id);
     moved++;
   }
   return moved;

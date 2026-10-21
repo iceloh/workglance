@@ -32,3 +32,23 @@ test("placeTasks: the W-1 case — stamped in shop, all edits in workglance, mov
   for (let i = 0; i < 20; i++) db.prepare("INSERT INTO edits(id, session_id, at, dir) VALUES (?,?,?,?)").run(`late${i}`, "tab", at(999_999 + i), "C:\\dev\\shop");
   assert.equal(placeTasks(db), 0);
 });
+
+test("placeTasks: a worktree git hasn't looked at yet waits; a task placed there with no repo is completed (W-55)", () => {
+  const db = openDb(":memory:");
+  const tab = { session_id: "tab", cwd: "C:\\dev\\shop" };
+  const t = createTask(db, tab, { repo: "C:\\dev\\shop", worktree: "C:\\dev\\shop", branch: "dev" }, { title: "Columns", type: "feature" });
+  const at = (s: number) => new Date(Date.parse(t.created_at) + s * 1000).toISOString();
+  const wt = "C:\\dev\\shop\\.claude\\worktrees\\cols";
+  db.prepare("INSERT INTO dirs(path, worktree, repo, checked_at) VALUES (?,?,?,?)").run(wt, wt, "C:\\dev\\shop", at(0));
+  for (let i = 0; i < 3; i++) db.prepare("INSERT INTO edits(id, session_id, at, dir) VALUES (?,?,?,?)").run(`e${i}`, "tab", at(10 + i), wt);
+  const place = () => ({ ...(db.prepare("SELECT worktree, repo, branch FROM tasks WHERE id = ?").get(t.id) as any) });
+
+  assert.equal(placeTasks(db), 0, "not in worktrees yet: stays where it was");
+  assert.deepEqual(place(), { worktree: "C:\\dev\\shop", repo: "C:\\dev\\shop", branch: "dev" });
+
+  db.prepare("UPDATE tasks SET worktree = ?, repo = NULL, branch = NULL WHERE id = ?").run(wt, t.id); // what the old code left
+  db.prepare("INSERT INTO worktrees(path, repo, branch) VALUES (?,?,?)").run(wt, "C:\\dev\\shop", "feat/cols");
+  assert.equal(placeTasks(db), 1);
+  assert.deepEqual(place(), { worktree: wt, repo: "C:\\dev\\shop", branch: "feat/cols" });
+  assert.equal(placeTasks(db), 0, "stable");
+});
