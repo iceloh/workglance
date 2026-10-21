@@ -16,7 +16,15 @@ export type Config = {
   digestTimes: string[];
   /** Have `claude -p` write the digest's summary paragraph right away (uses the user's subscription). */
   digestSummary: boolean;
+  /** The language the digest summary is written in ("Portuguese", "English"…). "" = the language of the cards. */
+  digestLanguage: string;
 };
+
+/** A language name as the user typed it, or "" (the cards' language). It goes into the summary prompt: words only. */
+export function parseLanguage(v: unknown): string {
+  const s = typeof v === "string" ? v.trim().replace(/\s+/g, " ") : "";
+  return /^[\p{L}][\p{L} ()-]{1,39}$/u.test(s) ? s : "";
+}
 
 /** Only well-formed entries: a typo in config.json must not turn every cost into NaN. */
 export function validPrices(v: unknown): Config["prices"] {
@@ -48,6 +56,7 @@ export function loadConfig(): Config {
     prices: validPrices((raw as { prices?: unknown }).prices),
     digestTimes: parseTimes((raw as { digestTimes?: unknown }).digestTimes),
     digestSummary: (raw as { digestSummary?: unknown }).digestSummary !== false,
+    digestLanguage: parseLanguage((raw as { digestLanguage?: unknown }).digestLanguage),
   };
 }
 

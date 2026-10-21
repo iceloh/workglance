@@ -5,7 +5,7 @@ import { createTask, updateTask } from "./tasks.ts";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dayBounds, digest, digestText, summarize, todayLocal } from "./digest.ts";
+import { dayBounds, digest, digestBetween, digestText, periodLength, summarize, summaryShape, todayLocal } from "./digest.ts";
 
 test("summarize: no claude on the PATH rejects, it doesn't crash on the unread prompt", async () => {
   const empty = mkdtempSync(join(tmpdir(), "wt-nopath-"));
@@ -13,10 +13,21 @@ test("summarize: no claude on the PATH rejects, it doesn't crash on the unread p
   process.env.PATH = empty;
   try {
     // A prompt larger than a pipe buffer: the write is still pending when the shell exits.
-    await assert.rejects(summarize("x".repeat(1_000_000), 20_000));
+    await assert.rejects(summarize("x".repeat(1_000_000), "", 20_000));
   } finally {
     process.env.PATH = path;
   }
+});
+
+test("the summary prompt: the chosen language, and the period with both ends and its length", () => {
+  assert.match(summaryShape("Portuguese"), /in Portuguese\./);
+  assert.match(summaryShape(""), /in the language most task titles use/);
+  assert.equal(periodLength("2026-10-20T11:00:00Z", "2026-10-21T11:00:00Z"), "about 24 hours");
+  assert.equal(periodLength("2026-10-21T11:00:00Z", "2026-10-21T18:10:00Z"), "about 7 hours");
+  assert.equal(periodLength("2026-10-18T11:00:00Z", "2026-10-21T11:00:00Z"), "about 3 days");
+  const db = openDb(":memory:");
+  const text = digestText(digestBetween(db, "2026-10-20T11:00:00Z", "2026-10-21T11:00:00Z", null));
+  assert.match(text.split("\n")[0]!, /^Period: .+ to .+ \(about 24 hours\)$/);
 });
 
 test("dayBounds: the local day, as instants", () => {

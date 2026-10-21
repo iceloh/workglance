@@ -10,7 +10,7 @@ test("dismiss: for good or snoozed; a changed situation comes back", async () =>
   const { attention, dismiss } = await import("./attention.ts");
   const db = openDb(":memory:");
   db.prepare("INSERT INTO worktrees(path, repo, dirty, ahead, exists_now) VALUES ('C:\\dev\\x', 'C:\\dev\\x', 2, 0, 1)").run();
-  const cfg = { enabled: true, port: 1, ignore: [], bitbucketNetrc: null, prices: {}, digestTimes: ["08:00"], digestSummary: false };
+  const cfg = { enabled: true, port: 1, ignore: [], bitbucketNetrc: null, prices: {}, digestTimes: ["08:00"], digestSummary: false, digestLanguage: "" };
   const items = () => attention(db, cfg, new Map(), NOW);
   assert.equal(items().length, 1);
   const key = items()[0]!.key;

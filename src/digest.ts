@@ -84,7 +84,9 @@ export function byRepo(d: Digest): RepoGroup[] {
 
 /** Plain text of the digest, by repo: what the summary is written from (and what a share/export would carry). */
 export function digestText(d: Digest): string {
-  const l: string[] = [d.date ? `Day ${d.date}` : `Since ${new Date(d.from).toLocaleString("en-GB")}`];
+  // Both ends: given only "Since …", the model guessed the length ("A week of shipping" for one day).
+  const at = (iso: string) => new Date(iso).toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  const l: string[] = [d.date ? `Day ${d.date}` : `Period: ${at(d.from)} to ${at(d.to)} (${periodLength(d.from, d.to)})`];
   if (d.testingNow.length) l.push("", "Waiting for the user to verify (in testing now):", ...d.testingNow.map((t) => `- [${t.repo}] W-${t.id} ${t.title}`));
   for (const g of byRepo(d)) {
     l.push("", `== Repo ${g.repo}${g.commits ? ` (${g.commits} commits)` : ""}`);
@@ -109,18 +111,27 @@ export function proseOnly(out: string): string {
   return (end === -1 ? lines : lines.slice(0, end)).join("\n").trim();
 }
 
+/** Pure: "about 7 hours", "about 1 day", in words the summary can repeat. */
+export function periodLength(from: string, to: string): string {
+  const h = Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 3600_000));
+  if (h < 1) return "under an hour";
+  if (h < 36) return `about ${h} hour${h === 1 ? "" : "s"}`;
+  const days = Math.round(h / 24);
+  return `about ${days} days`;
+}
+
 /** The summary's shape: one line overall, one short paragraph per repo, then what needs the user. */
-export const SUMMARY_SHAPE = `Write a digest of this developer's work in this period, in the language most task titles use. Plain text, no markdown, no bullet symbols. Exactly this shape, with a blank line between parts:
-1. One sentence: the period in a nutshell.
+export const summaryShape = (language: string) => `Write a digest of this developer's work in this period, ${language ? `in ${language}` : "in the language most task titles use"}. Plain text, no markdown, no bullet symbols. Exactly this shape, with a blank line between parts:
+1. One sentence: the period in a nutshell (it is exactly the period given; never call it longer or shorter).
 2. For each repo with activity, most active first: the repo name, a colon, then one or two sentences on what was done and what moved. Name cards as W-<number>.
 3. A last part starting with "Needs you:" (translated to the same language), then one or two sentences: what waits for the user's verification and the most urgent open issue.
 Be concrete and short; no filler.
 
 `;
 
-export function summarize(text: string, timeoutMs = 120_000): Promise<string> {
+export function summarize(text: string, language = "", timeoutMs = 120_000): Promise<string> {
   return new Promise((resolve, reject) => {
-    const prompt = SUMMARY_SHAPE + text;
+    const prompt = summaryShape(language) + text;
     const cwd = mkdtempSync(join(tmpdir(), "wt-digest-"));
     // The text goes in through stdin, never on the command line: on Windows `claude` is a .cmd run by
     // cmd.exe, which would read a prompt's & or | as its own syntax.

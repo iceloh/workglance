@@ -17,14 +17,14 @@ import { openTabUrl, renderDigestPage, renderPage, renderSearchPage, renderTaskP
 import { attention } from "./attention.ts";
 import { search } from "./search.ts";
 import { digest, digestBetween, digestText, summarize, todayLocal } from "./digest.ts";
-import { getRun, latestRun, markRunRead, neighbours, parseTimes, runDueDigest, setRunSummary, type DigestRun } from "./daily.ts";
+import { getRun, latestRun, markRunRead, neighbours, parseTimes, runDueDigest, runNow, setRunSummary, type DigestRun } from "./daily.ts";
 import { redact } from "./redact.ts";
 import { backupIfDue } from "./ops.ts";
 import { metrics } from "./metrics.ts";
 import { renderMetricsPage, renderSettingsPage } from "./page.ts";
 import { dismiss } from "./attention.ts";
 import { retrack, untrack } from "./untrack.ts";
-import { setConfig, untrackedFolders } from "./config.ts";
+import { parseLanguage, setConfig, untrackedFolders } from "./config.ts";
 
 /** The latest eval run (from `workglance eval`), if any. */
 function latestEvals(): { at: string; model: string; results: { name: string; pass: boolean; failures: string[]; warnings: string[]; costUsd: number }[] } | null {
@@ -97,19 +97,21 @@ function digestPage(url: URL): string {
     const times = loadConfig().digestTimes;
     const next = times.map((t) => { const [h, m] = t.split(":").map(Number); const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h!, m!); if (d <= now) d.setDate(d.getDate() + 1); return d; }).sort((a, b) => +a - +b)[0]!;
     return renderDigestPage(digestBetween(db, from, now.toISOString(), null), null, { heading: "Digest preview", window: `last 24 hours`,
-      note: `the first scheduled digest comes ${when(next.toISOString())}`, prev: null, next: null, summarize: { date: todayLocal() } });
+      note: `the first scheduled digest comes ${when(next.toISOString())}`, prev: null, next: null, summarize: { date: todayLocal() },
+      fresh: { since: when(from) } });
   }
   markRunRead(db, run.id);
   setDigestUnread(false);
   const n = neighbours(db, run);
   return renderDigestPage(digestBetween(db, run.from, run.to, null), run.summary, { heading: `Digest · ${when(run.to)}`,
     window: `${when(run.from)} → ${when(run.to)}`, prev: n.prev ? `/digest?id=${encodeURIComponent(n.prev)}` : null,
-    next: n.next ? `/digest?id=${encodeURIComponent(n.next)}` : null, summarize: { id: run.id } });
+    next: n.next ? `/digest?id=${encodeURIComponent(n.next)}` : null, summarize: { id: run.id },
+    fresh: n.next ? undefined : { since: when(run.to) } });
 }
 
 /** The written paragraph for a scheduled digest (claude -p, redacted input), stored with it. */
 async function writeRunSummary(run: DigestRun): Promise<string> {
-  const text = await summarize(redact(digestText(digestBetween(db, run.from, run.to, null))));
+  const text = await summarize(redact(digestText(digestBetween(db, run.from, run.to, null))), loadConfig().digestLanguage);
   setRunSummary(db, run.id, text);
   version++;
   return text;
@@ -217,6 +219,19 @@ const server = http.createServer((req, res) => {
     setTimeout(() => { server.close(); db.close(); process.exit(0); }, 200);
     return;
   }
+  // "New digest": everything since the last one, up to now; with its summary when that's on (a failed summary
+  // still leaves the digest, which has its own "Summarize" button).
+  if (url.pathname === "/api/digest/now") {
+    if (req.method !== "POST" || !String(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(405).end(); return; }
+    readJson(req).then(async () => {
+      const run = runNow(db);
+      version++;
+      let summaryError: string | null = null;
+      if (loadConfig().digestSummary && !run.summary) await writeRunSummary(run).catch((e) => { summaryError = e instanceof Error ? e.message : "failed"; });
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: run.id, summaryError }));
+    }).catch((e) => res.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ error: e instanceof Error ? e.message : "failed" })));
+    return;
+  }
   if (url.pathname === "/api/digest/summary") {
     if (req.method !== "POST" || !String(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(405).end(); return; }
     readJson(req).then(async (body) => {
@@ -229,7 +244,7 @@ const server = http.createServer((req, res) => {
       }
       const date = String(body.date ?? "");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new TaskError("bad date");
-      const text = await summarize(redact(digestText(digest(db, date))));
+      const text = await summarize(redact(digestText(digest(db, date))), loadConfig().digestLanguage);
       db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)").run(`digest_summary:${date}`, text);
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ summary: text }));
     }).catch((e) => res.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ error: e instanceof Error ? e.message : "failed" })));
@@ -239,9 +254,11 @@ const server = http.createServer((req, res) => {
     if (req.method !== "POST" || !String(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(405).end(); return; }
     readJson(req).then((body) => {
       const times = parseTimes(body.times);
-      setConfig({ digestTimes: times, digestSummary: body.summary !== false });
-      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ times, summary: body.summary !== false }));
-    }).catch(() => res.writeHead(400).end());
+      const language = parseLanguage(body.language);
+      if (String(body.language ?? "").trim() && !language) throw new TaskError("language: a name like Portuguese or English");
+      setConfig({ digestTimes: times, digestSummary: body.summary !== false, digestLanguage: language });
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ times, summary: body.summary !== false, language }));
+    }).catch((e) => res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: e instanceof TaskError ? e.message : "bad request" })));
     return;
   }
   if (url.pathname === "/api/windows/wait" || url.pathname === "/api/open") {
@@ -266,7 +283,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/settings") {
     const c = loadConfig();
-    const html = renderSettingsPage(untrackedFolders(), { times: c.digestTimes, summary: c.digestSummary });
+    const html = renderSettingsPage(untrackedFolders(), { times: c.digestTimes, summary: c.digestSummary, language: c.digestLanguage });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" }).end(html);
     return;
   }

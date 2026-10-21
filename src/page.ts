@@ -167,21 +167,25 @@ function attentionPanel(items: Attention[]): string {
     </span></div>`).join("")}${items.length > 12 ? `<div class="muted small">… ${items.length - 12} more</div>` : ""}</div>`;
 }
 
-export function renderSettingsPage(untracked: string[], digest: { times: string[]; summary: boolean } = { times: ["08:00"], summary: true }): string {
+export function renderSettingsPage(untracked: string[], digest: { times: string[]; summary: boolean; language: string } = { times: ["08:00"], summary: true, language: "" }): string {
   return shell("Settings", `${topNav("settings")}<main class="detail">
 <h2>Digest</h2>
 <p class="muted">At each of these times Workglance writes a digest of everything since the previous one: what got done, what waits for you, commits, model work. Several times a day are fine (e.g. <code>08:00, 13:00, 18:00</code>); if the computer was off, one digest covers the whole gap.</p>
 <form class="comment" onsubmit="return saveDigest(this)"><input name="times" value="${esc(digest.times.join(", "))}" placeholder="08:00, 13:00, 18:00" required>
 <label class="muted small"><input type="checkbox" name="summary"${digest.summary ? " checked" : ""}> also a written summary by <code>claude -p</code> (your subscription)</label>
-<button class="btn">Save</button></form>
+<label class="muted small">Summary language <input name="language" value="${esc(digest.language)}" placeholder="the language of your cards" maxlength="40"></label>
+<button class="btn">Save</button> <span class="small" id="digeststatus"></span></form>
 <h2>Untracked folders</h2>
 <p class="muted">Workglance doesn't look at these: tabs working there get no protocol, cards or nudges, nothing from them is stored, and no git command runs there.</p>
 ${untracked.length ? `<table>${untracked.map((p) => `<tr><td><code>${esc(p)}</code></td><td><button class="mini" data-path="${esc(p)}" onclick="retrackPath(this)">Track again</button></td></tr>`).join("")}</table>` : `<div class="muted">None.</div>`}
 <form class="comment" onsubmit="return untrackTyped(this)"><input name="path" placeholder="C:/dev/some-repo" required><button class="btn">Untrack folder</button></form>
 </main><script>${BOARD_JS}
 function untrackTyped(f){const v=f.path.value.trim();if(v)post("/api/untrack",{path:v});return false}
-async function saveDigest(f){const r=await fetch("/api/settings/digest",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({times:f.times.value,summary:f.summary.checked})});
-  const j=await r.json().catch(()=>({}));if(r.ok){f.times.value=j.times.join(", ");alert("Saved: digests at "+j.times.join(", "))}else alert(j.error||"Could not save");return false}</script>`);
+async function saveDigest(f){const s=document.getElementById("digeststatus");
+  const r=await fetch("/api/settings/digest",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({times:f.times.value,summary:f.summary.checked,language:f.language.value})}).catch(()=>null);
+  const j=r?await r.json().catch(()=>({})):{};
+  if(r&&r.ok){f.times.value=j.times.join(", ");f.language.value=j.language;s.className="small ok";s.textContent="Saved: digests at "+j.times.join(", ")+(j.language?", summary in "+j.language:"")}
+  else{s.className="small err";s.textContent="Not saved: "+(j.error||"the local server didn't answer")}return false}</script>`);
 }
 
 export function renderSearchPage(q: string, hits: Hit[], titles: Map<string, string | null>): string {
@@ -226,6 +230,8 @@ export type DigestView = {
   heading: string; window: string; prev: string | null; next: string | null;
   /** What "Summarize with Claude" posts to /api/digest/summary: {id} for a scheduled digest, {date} for a day. */
   summarize: Record<string, string>; note?: string;
+  /** On the latest digest: offer a new one covering from its end ("since") to now. */
+  fresh?: { since: string };
 };
 
 export function renderDigestPage(d: Digest, summary: string | null, v: DigestView): string {
@@ -254,8 +260,9 @@ ${!g.closed.length && !g.toTesting.length && !g.started.length && !g.created.len
   return shell(v.heading, `${topNav("digest")}<main class="detail">
 <h2>${esc(v.heading)} <span class="small">${v.prev ? `<a href="${esc(v.prev)}">← previous</a>` : ""}${v.prev && v.next ? " · " : ""}${v.next ? `<a href="${esc(v.next)}">next →</a>` : ""}</span></h2>
 <p class="muted">${esc(v.window)}${v.note ? ` · ${esc(v.note)}` : ""}${total ? ` · ${total}` : ""}${d.total.usd ? ` · ${money(d.total)}` : ""}</p>
+${v.fresh ? `<div class="newdigest"><button class="btn primary" onclick="newDigest(this)">New digest: what you did since ${esc(v.fresh.since)}</button> <span class="small muted" id="newstatus">The next scheduled one starts from there.</span></div>` : ""}
 <div class="digestsum" id="summary">${summary ? summaryHtml(summary) : ""}
-<div class="small">${summary ? `<button class="mini" onclick='summarize(${esc(JSON.stringify(v.summarize))})'>Rewrite summary</button>` : `<button class="btn" onclick='summarize(${esc(JSON.stringify(v.summarize))})'>Summarize with Claude</button>`} <span class="muted small">runs <code>claude -p</code> once on your subscription; nothing is sent anywhere else</span></div></div>
+<div class="small">${summary ? `<button class="mini" onclick='summarize(${esc(JSON.stringify(v.summarize))})'>Rewrite summary (same period)</button>` : `<button class="btn" onclick='summarize(${esc(JSON.stringify(v.summarize))})'>Summarize with Claude</button>`} <span class="muted small">runs <code>claude -p</code> once on your subscription; nothing is sent anywhere else</span></div></div>
 ${needs}
 ${groups.length ? groups.map(section).join("") : `<div class="empty">Nothing happened in this period.</div>`}
 <details class="repo"><summary><b>Tabs · model work</b> ${money(d.total) || "—"} <span class="muted small">(API list prices; on a subscription this is effort, not your bill)</span></summary>
@@ -265,7 +272,12 @@ ${d.tabs.length ? `<table>${d.tabs.map((t) => `<tr><td><a href="${openTabUrl(t.i
 <script>${BOARD_JS}
 async function summarize(body){const box=document.getElementById("summary");box.textContent="Asking Claude… (up to a minute)";
   const r=await fetch("/api/digest/summary",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
-  const j=await r.json().catch(()=>({}));if(r.ok)location.reload();else box.textContent="Could not summarize: "+(j.error||r.status)}</script>`);
+  const j=await r.json().catch(()=>({}));if(r.ok)location.reload();else box.textContent="Could not summarize: "+(j.error||r.status)}
+async function newDigest(b){const s=document.getElementById("newstatus");b.disabled=true;s.className="small muted";s.textContent="Writing the digest… the summary takes up to a minute.";
+  const r=await fetch("/api/digest/now",{method:"POST",headers:{"content-type":"application/json"},body:"{}"}).catch(()=>null);
+  const j=r?await r.json().catch(()=>({})):{};
+  if(!r||!r.ok){s.className="small err";s.textContent="Not created: "+(j.error||"the local server didn't answer. Try again in a few seconds.");b.disabled=false;return}
+  location.href="/digest?id="+encodeURIComponent(j.id)}</script>`);
 }
 
 /** The summary in its parts (overview, one per repo, "needs you"): a part that starts with "Name:" gets the name in bold. */
@@ -464,7 +476,7 @@ mark{background:rgba(254,230,0,.55);color:inherit;border-radius:3px;padding:0 2p
 .actions{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}.btn{font:inherit;font-size:13px;padding:5px 11px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--text);cursor:pointer}
 .btn:hover{border-color:var(--accent)}.btn.danger{color:#c2410c}.btn:disabled{opacity:.5;cursor:default;border-color:var(--line)}
 .reviewbar{position:sticky;bottom:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding:10px 0;background:var(--bg);border-top:1px solid var(--line)}
-.small.ok{color:#1f8a4c}.small.err{color:#c2410c}
+.small.ok{color:#1f8a4c}.small.err{color:#c2410c}.newdigest{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 14px}
 .comment{display:flex;gap:8px;align-items:flex-start;margin:6px 0 4px}.comment textarea{flex:1;font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);resize:vertical}
 :root{--bg:#f6f7f9;--card:#fff;--text:#1d2330;--muted:#6b7280;--line:#e3e6eb;--chip:#eef1f5;--done:#1f8a4c;--testing:#b7791f;--prog:#2b6cb0;--local:#6b7280;--accent:#4f46e5}
 @media (prefers-color-scheme:dark){:root{--bg:#111318;--card:#1a1d24;--text:#e6e8ec;--muted:#9aa1ad;--line:#2a2e37;--chip:#252a33;--accent:#8b85ff}}

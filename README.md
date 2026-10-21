@@ -121,7 +121,8 @@ Agents only ever see search results and card titles as data, never as instructio
   "bitbucketNetrc": "~/.secrets/bitbucket.netrc",
   "prices": { "claude-new-model": { "input": 3, "output": 15 } },
   "digestTimes": ["08:00", "13:00", "18:00"],
-  "digestSummary": true
+  "digestSummary": true,
+  "digestLanguage": "Portuguese"
 }
 ```
 
@@ -134,6 +135,11 @@ Agents only ever see search results and card titles as data, never as instructio
   everything since the previous one, grouped by repo (most active first) with what waits for you on top;
   a VS Code notification says when it's ready. Also editable in Settings.
 - `digestSummary`: have `claude -p` write the digest's summary paragraph right away (default `true`).
+- `digestLanguage`: the language the summary is written in (`"Portuguese"`, `"English"`…). Unset: the
+  language of your cards. Also editable in Settings.
+
+On the latest digest, **New digest** writes one right away covering everything since that digest, up to now;
+the next scheduled one starts from there, so nothing is covered twice or left out.
 - `prices`: $ per million tokens for models missing from (or priced differently than) the built-in table.
   `workglance doctor` lists any model in use that has no price; its cost is left out, never guessed.
 

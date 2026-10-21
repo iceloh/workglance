@@ -76,6 +76,18 @@ export function runDueDigest(db: Db, times: string[], now = new Date()): DigestR
   return getRun(db, due.id);
 }
 
+/**
+ * A digest made on request: everything since the last one (the 24 hours before, if none), up to now. The next
+ * scheduled one starts from here, so nothing is covered twice or left out.
+ */
+export function runNow(db: Db, now = new Date()): DigestRun {
+  const last = latestRun(db)?.to ?? null;
+  const from = last ?? new Date(now.getTime() - 86400_000).toISOString();
+  const id = slotId(now);
+  db.prepare("INSERT OR IGNORE INTO digests(id, from_at, to_at, created_at) VALUES (?, ?, ?, ?)").run(id, from, now.toISOString(), now.toISOString());
+  return getRun(db, id)!;
+}
+
 export function setRunSummary(db: Db, id: string, summary: string): void {
   db.prepare("UPDATE digests SET summary = ? WHERE id = ?").run(summary, id);
 }

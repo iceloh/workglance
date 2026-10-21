@@ -197,3 +197,9 @@ Measured: each hook call ~190 ms (Node startup); the per-edit hook is async and 
   folder. Worktrees Claude Code makes in `<repo>/.claude/worktrees` are often deleted before Workglance
   resolves them; a folder inside a repo's checkout counts for the nearest repo above it (on real data this
   moved ~$2,600 of 30 days from "no repo" to the right repo).
+- **Digest on request and its language** (21/10/2026): "New digest" on the latest digest covers from its end
+  to now and becomes the run the next scheduled one starts from (a slot already covered makes no second
+  digest). "Rewrite summary" stays the same period, and says so: it was taken for "bring in what I did since".
+  The summary prompt now carries both ends of the period and its length: given only "Since 08:00" the model
+  called one day "a week of shipping". `digestLanguage` (Settings) is letters, spaces, () and - only, since
+  it goes into the prompt.
