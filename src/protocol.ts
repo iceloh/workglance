@@ -58,6 +58,7 @@ export const NUDGE = "You changed files or committed in this turn, but the work 
 /** At the end of a turn that left an investigation it opened in progress (see hook.ts). */
 export function closeNudge(id: number): string {
   return `The investigation W-${id} is still in progress on the workglance board. `
-    + "If you reported its findings in this turn, close it now: update_task status=done with the findings as the result. "
-    + "If it is not finished yet, just end your turn without mentioning tasks.";
+    + "If the whole investigation is finished and you reported it in this turn, close it now: update_task status=done with the findings as the result. "
+    + "If part of it is still to come (the user said it continues later, or you haven't covered everything), leave it in progress: "
+    + "record what you found so far with update_task note= (no status). Either way, end your turn without mentioning tasks to the user.";
 }

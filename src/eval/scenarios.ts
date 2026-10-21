@@ -91,6 +91,19 @@ export const SCENARIOS: Scenario[] = [
       noEdits],
   },
   {
+    name: "investigation_unfinished",
+    why: "An investigation the user says continues later stays open: the end-of-turn reminder must not push it closed.",
+    files: {
+      "users.py": `PASSWORD = "admin123"\n\ndef find_user(db, name):\n    return db.execute("SELECT * FROM users WHERE name = '" + name + "'").fetchall()\n`,
+      "calc.py": `def calc(expr):\n    return eval(expr)\n`,
+      "files.py": `import os\n\ndef read_report(name):\n    return open(os.path.join("reports", name)).read()\n`,
+    },
+    turns: ["Start a security audit of this project. Today only users.py: tell me what you find there, with lines. We continue with calc.py and files.py tomorrow. Don't fix anything."],
+    expect: [soft(some("is an investigation", (t) => t.type === "investigation"), "the partial audit got no card"),
+      (b) => (b.tasks.some((t) => t.type === "investigation" && t.status === "done") ? { fail: "the unfinished investigation was closed as done" } : null),
+      noEdits],
+  },
+  {
     name: "bug_found_midway",
     why: "An unrelated bug found mid-task becomes its own card for later (soft: fixing or mentioning it is also defensible).",
     files: {

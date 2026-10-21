@@ -14,8 +14,8 @@ across every repo and worktree, what each tab did, what is still undone and whic
   moment a tab asks you something or needs a permission. **Open tab** jumps straight to that Claude Code
   session, in the VS Code window that has it.
 - **A board you don't have to keep.** Each tab registers its real work (features, fixes, investigations),
-  moves it as it goes and closes it with a result: what changed, how it was verified, what is left. Questions
-  and small edits never clutter it.
+  moves it as it goes and closes it with a result: what changed, how it was verified, what is left, or for an
+  investigation its findings (it is reminded when it forgets). Questions and small edits never clutter it.
 - **Know what really shipped.** Commits are linked to their card and followed into dev and main, with CI
   status from GitHub Actions or Bitbucket. A card marked done whose code never reached main gets flagged.
 - **Steer from the board.** Drag a card back or comment on it; the tab reads it on its next prompt.

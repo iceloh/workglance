@@ -2,6 +2,7 @@
 // repos by absolute path (the first real task, W-1, was stamped `shop/dev` while all of its work
 // was in `workglance`). The evidence is what the task's tabs edited and committed while it was open.
 import type { Db } from "./db.ts";
+import { pathKey } from "./transcript.ts";
 
 /** A commit is much stronger evidence than one edit (an edit can be a stray note in another repo). */
 export const COMMIT_WEIGHT = 5;
@@ -25,7 +26,10 @@ export function placeTasks(db: Db): number {
   const edits = db.prepare(`SELECT d.worktree, count(*) AS n FROM edits e JOIN task_sessions ts ON ts.session_id = e.session_id
     JOIN dirs d ON d.path = e.dir WHERE ts.task_id = ? AND e.at >= ? AND e.at <= ? AND d.worktree IS NOT NULL GROUP BY d.worktree`);
   const commits = db.prepare("SELECT worktree, count(*) AS n FROM commits WHERE task_id = ? AND worktree IS NOT NULL GROUP BY worktree");
-  const wt = db.prepare("SELECT w.path, w.repo, w.branch FROM worktrees w WHERE w.path = ?");
+  // By pathKey: the two paths come from different git commands (rev-parse, worktree list), and on Windows or
+  // macOS they can differ in case or in the 8.3 short form; a miss here would leave the task unplaced for good.
+  const worktrees = new Map((db.prepare("SELECT path, repo, branch FROM worktrees").all() as { path: string; repo: string; branch: string | null }[])
+    .map((w) => [pathKey(w.path), w]));
   const move = db.prepare("UPDATE tasks SET worktree = ?, repo = ?, branch = ?, place_source = 'activity' WHERE id = ?");
   let moved = 0;
   for (const t of tasks) {
@@ -42,8 +46,9 @@ export function placeTasks(db: Db): number {
     if (!place) continue;
     // A worktree the tab just made is edited before git has looked at it: wait for that, instead of
     // placing the task with no repo (W-55); a task placed that way before is completed here.
-    const w = wt.get(place) as { path: string; repo: string; branch: string | null } | undefined;
-    if (!w || (place === t.worktree && t.repo)) continue;
+    const w = worktrees.get(pathKey(place));
+    const same = t.worktree != null && pathKey(place) === pathKey(t.worktree);
+    if (!w || (same && t.repo)) continue;
     move.run(place, w.repo, w.branch, t.id);
     moved++;
   }

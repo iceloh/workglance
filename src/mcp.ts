@@ -51,7 +51,7 @@ function build(db: Db): McpServer {
       id: z.number().int(),
       status: z.enum(STATUSES).optional(),
       note: z.string().max(2000).optional().describe("Required when the status changes: what was done or why"),
-      result: z.string().max(4000).optional().describe("When done: what changed, where, how it was verified, what is left. For an investigation: the findings."),
+      result: z.string().max(4000).optional().describe("When done: what changed, where, how it was verified, what is left. For an investigation: the findings (required to close it as done)."),
       title: z.string().min(3).max(200).optional(),
       type: z.enum(TYPES).optional(),
       commits: COMMITS,

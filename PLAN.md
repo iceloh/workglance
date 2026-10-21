@@ -231,10 +231,29 @@ Measured: each hook call ~190 ms (Node startup); the per-edit hook is async and 
 - **Investigations closed with their findings** (21/10/2026). The eval's `investigation_with_findings` failed
   about one run in three: the agent opened the card, wrote the whole report in the chat and ended the turn
   with the card still in progress (it had loaded only create_task, so closing needed another tool lookup).
-  Two fixes, no protocol change: an end-of-turn reminder for an investigation opened or touched in this turn
-  and left in progress (once per card, not when the turn ends with a question), and `update_task` refuses an
-  agent's `done` on an investigation with no result. After: 7 of 9 runs passed; one closed with no result
-  (before the refusal existed), one made no card at all for a 5-file audit (a judgment call, left alone).
+  The session protocol is unchanged; three additions to what agents get:
+  - An end-of-turn reminder (`closeNudge` in protocol.ts) for an investigation **this agent created or took in
+    this turn** and left in progress. Not for one opened earlier and only noted now, nor one the user moved or
+    commented on: a first version used "updated in this turn" and the review squad found it fired for those.
+    Once per card, not when the turn ends with a question, within the session's nudge cap, and only when the
+    agent made a card call in the turn (so most turn ends don't open the database). Trade-off: a multi-turn
+    audit gets its one reminder in the turn that opened it; its text says to just end the turn if unfinished
+    (`investigation_unfinished` checks that it isn't pushed closed). A tab whose turn began before the upgrade
+    has no turn start and gets no reminder. The turn start is written by one hook process and compared with
+    the server's event times: same machine clock, fine at this granularity.
+  - `update_task` refuses an agent's `done` on an investigation with no result (the board and the reviewer
+    are not refused), and its `result` description says so.
+  - Eval: before, 2 of 3 runs passed. With the first reminder: 4 of 5, full suite 8/8 ($1.13); with the
+    refusal too: 3 of 4 (the failure made no card at all for a 5-file audit, a judgment call left alone).
+    After the review fixes, the full suite with the new `investigation_unfinished` scenario: 8/9, the new one
+    failing 2 of 3: the reminder said "if you reported its findings in this turn, close it", so a partial
+    day-one audit was closed as done. Reworded to "if the whole investigation is finished… if part of it is
+    still to come, record what you found so far as a note and leave it in progress": both investigation
+    scenarios then passed 3 of 3 each.
   `workglance eval --keep` leaves a run's repo and transcript, to read what the agent did.
+- **The reviewer and a card with no repo** (21/10/2026): such a card takes its commits' repo, only when all
+  its commits share one; otherwise the branch names are unknown and the reviewer leaves the card. Before,
+  W-55 stayed in testing with every commit on main.
 - **A task is placed in a worktree only once git knows it** (21/10/2026): a tab edits a worktree it just
   made before the git refresh records it, and the task was placed there with no repo or branch, for good (W-55).
+  Looked up by `pathKey`: the two paths come from different git commands and can differ in case on Windows/macOS.

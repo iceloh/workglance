@@ -36,6 +36,11 @@ Node 24+ runs the TypeScript sources directly. To use your checkout as your real
   into a temp folder with its own Claude config and port, runs a hook, the server, doctor and uninstall.
   CI runs it on Windows, macOS and Linux.
 - Decisions that are not obvious from the code go into `PLAN.md`.
+- Changed what agents are told (`src/protocol.ts`, a tool description in `src/mcp.ts`, a hook reminder)? Run
+  `node src/cli.ts eval` before and after: real headless Claude sessions against the scenarios in
+  `src/eval/scenarios.ts`, about $1-3, with your own Claude Code. `--only a,b` runs some scenarios, `--parallel n`
+  sets how many at once, `--keep` leaves each run's repo and transcript on disk to read what the agent did (it
+  prints where; delete them when you are done).
 - Using Claude Code? `/review-squad` reviews your change with six specialists (architecture, security, tests,
   Windows/macOS/Linux, what agents are told, UI/docs/release) and a lead who checks their blockers in the
   code; read-only, it fixes nothing. `/invariant-scan` looks for the same rules across the whole repo. Both

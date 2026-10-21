@@ -75,6 +75,14 @@ function judge(checks: Check[] | undefined, b: Board, failures: string[], warnin
   }
 }
 
+/**
+ * A scenario's repo, home and transcripts are throwaway: never left behind. Claude keeps each session's log
+ * under ~/.claude/projects/<the repo path, encoded>, so that folder goes too.
+ */
+export function throwawayDirs(root: string, repo: string, projects = CLAUDE_PROJECTS): string[] {
+  return [root, join(projects, repo.replace(/[^a-zA-Z0-9]/g, "-"))];
+}
+
 export async function runScenario(s: Scenario, port: number, model: string, keep = false): Promise<ScenarioResult> {
   const t0 = Date.now();
   // The long real path: Windows' short form (C:\Users\JANEDO~1\...) made Claude Code hold every write for
@@ -112,11 +120,10 @@ export async function runScenario(s: Scenario, port: number, model: string, keep
   let board: Board = { tasks: [], nudges: 0, edits: 0 };
   try { board = readBoard(home, repo, initSha); } catch (e) { failures.push(`could not read the board: ${(e as Error).message}`); }
   if (!error) judge(s.expect, board, failures, warnings, "");
-  // A scenario's repo, home and transcripts are throwaway: never leave them behind in the temp folder.
-  // Claude keeps each session's log under ~/.claude/projects/<the repo path, encoded>: remove that too.
-  // --keep leaves both, to read what the agent did when a scenario fails.
-  if (keep) console.log(`${s.name}: kept ${root} and ${join(CLAUDE_PROJECTS, repo.replace(/[^a-zA-Z0-9]/g, "-"))}`);
-  else for (const dir of [root, join(CLAUDE_PROJECTS, repo.replace(/[^a-zA-Z0-9]/g, "-"))]) {
+  // --keep leaves them, to read what the agent did when a scenario fails; the user deletes them afterwards.
+  const dirs = throwawayDirs(root, repo);
+  if (keep) console.log(`${s.name}: kept (delete them when done) ${dirs.join(" and ")}`);
+  else for (const dir of dirs) {
     try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 }); } catch {}
   }
   return { name: s.name, pass: failures.length === 0, failures, warnings, costUsd: cost, turns, ms: Date.now() - t0, tasks: board.tasks, error };

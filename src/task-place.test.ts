@@ -52,3 +52,17 @@ test("placeTasks: a worktree git hasn't looked at yet waits; a task placed there
   assert.deepEqual(place(), { worktree: wt, repo: "C:\\dev\\shop", branch: "feat/cols" });
   assert.equal(placeTasks(db), 0, "stable");
 });
+
+test("placeTasks: the worktree is found whatever the case git wrote it in (Windows)", () => {
+  const db = openDb(":memory:");
+  const tab = { session_id: "tab", cwd: "C:\\dev\\shop" };
+  const t = createTask(db, tab, { repo: "C:\\dev\\shop", worktree: "C:\\dev\\shop", branch: "dev" }, { title: "Columns", type: "feature" });
+  const at = (s: number) => new Date(Date.parse(t.created_at) + s * 1000).toISOString();
+  const wt = "C:\\dev\\shop\\.claude\\worktrees\\cols";
+  db.prepare("INSERT INTO dirs(path, worktree, repo, checked_at) VALUES (?,?,?,?)").run(wt, wt, "C:\\dev\\shop", at(0));
+  for (let i = 0; i < 3; i++) db.prepare("INSERT INTO edits(id, session_id, at, dir) VALUES (?,?,?,?)").run(`e${i}`, "tab", at(10 + i), wt);
+  db.prepare("INSERT INTO worktrees(path, repo, branch) VALUES (?,?,?)").run("C:\\Dev\\Shop\\.claude\\worktrees\\cols", "C:\\dev\\shop", "feat/cols");
+  assert.equal(placeTasks(db), 1);
+  assert.equal((db.prepare("SELECT branch FROM tasks WHERE id = ?").get(t.id) as any).branch, "feat/cols");
+  assert.equal(placeTasks(db), 0, "the same folder in another case is not a move");
+});

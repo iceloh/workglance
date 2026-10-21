@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDb } from "./db.ts";
-import { createTask } from "./tasks.ts";
+import { createTask, updateTask } from "./tasks.ts";
 
 const HOOK = fileURLToPath(new URL("./hook.ts", import.meta.url));
 const CWD = "C:\\dev\\shop";
@@ -15,7 +15,7 @@ const CWD = "C:\\dev\\shop";
 function harness(config?: object) {
   const home = mkdtempSync(join(tmpdir(), "wt-hook-"));
   if (config) writeFileSync(join(home, "config.json"), JSON.stringify(config));
-  const env = { ...process.env, WORKGLANCE_HOME: home, WORKGLANCE_NO_AUTOSTART: "1", WORKGLANCE_PORT: "1" };
+  const env = { ...process.env, WORKGLANCE_HOME: home, WORKGLANCE_NO_AUTOSTART: "1", WORKGLANCE_PORT: "1", CLAUDE_CONFIG_DIR: join(home, "claude") };
   const run = (event: string, payload: object) => {
     const r = spawnSync(process.execPath, ["--no-warnings", HOOK, event], { input: JSON.stringify({ session_id: "tab-a", cwd: CWD, ...payload }), env, encoding: "utf8" });
     assert.equal(r.status, 0, r.stderr);
@@ -110,25 +110,70 @@ test("with a task in progress: prompts see the snapshot and edits belong to it (
   assert.equal(h.run("Stop", { stop_hook_active: false }), null);
 });
 
+function investigations(h: ReturnType<typeof harness>) {
+  const state = (patch: object) => {
+    const f = join(h.home, "state", "tab-a.json");
+    writeFileSync(f, JSON.stringify({ ...JSON.parse(readFileSync(f, "utf8")), ...patch }));
+  };
+  // What a real create_task does: the hook sees the call, then the server records the card.
+  const open = (title: string) => {
+    h.run("PreToolUse", { tool_name: "mcp__workglance__create_task", tool_input: { title }, tool_use_id: title });
+    const db = openDb(join(h.home, "workglance.db"));
+    try { return createTask(db, { session_id: "tab-a", cwd: CWD }, { repo: null, worktree: null, branch: null }, { title, type: "investigation" }); } finally { db.close(); }
+  };
+  const findings = () => h.run("Stop", { stop_hook_active: false, last_assistant_message: "## Findings\n1. SQL injection in users.py:4" });
+  return { state, open, findings };
+}
+
 test("an investigation opened this turn and left in progress: one reminder to close it with its findings", () => {
   const h = harness();
   h.run("SessionStart", {});
-  const db = openDb(join(h.home, "workglance.db"));
-  const old = createTask(db, { session_id: "tab-a", cwd: CWD }, { repo: null, worktree: null, branch: null }, { title: "Old audit", type: "investigation" });
-  db.close();
-  h.run("UserPromptSubmit", { prompt: "anything else?" });
-  assert.equal(h.run("Stop", { stop_hook_active: false, last_assistant_message: "Done." }), null, "opened in an earlier turn: not this turn's report");
-
-  const db2 = openDb(join(h.home, "workglance.db"));
-  db2.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(old.id);
-  const t = createTask(db2, { session_id: "tab-a", cwd: CWD }, { repo: null, worktree: null, branch: null }, { title: "Security audit", type: "investigation" });
-  db2.close();
+  const { open, findings } = investigations(h);
+  h.run("UserPromptSubmit", { prompt: "audit this" });
+  const t = open("Security audit");
   assert.equal(h.run("Stop", { stop_hook_active: false, last_assistant_message: "Which file should I start with?" }), null, "a question: not finished");
-  const n = h.run("Stop", { stop_hook_active: false, last_assistant_message: "## Findings\n1. SQL injection in users.py:4" });
+  const n = findings();
   assert.equal(n.decision, "block");
   assert.match(n.reason, new RegExp(`W-${t.id} is still in progress.*update_task status=done with the findings`));
   assert.equal(h.run("Stop", { stop_hook_active: true }), null, "no loop while it answers");
-  assert.equal(h.run("Stop", { stop_hook_active: false, last_assistant_message: "Still digging." }), null, "once per card");
+  assert.equal(findings(), null, "once per card");
+});
+
+test("the close reminder: not for a card opened in an earlier turn, even if the agent or the user touched it now", () => {
+  const h = harness();
+  h.run("SessionStart", {});
+  const { open, findings } = investigations(h);
+  const t = open("Old audit");
+  const db = openDb(join(h.home, "workglance.db"));
+  db.prepare("UPDATE task_events SET at = '2026-01-01T00:00:00.000Z' WHERE task_id = ?").run(t.id); // an earlier turn
+  db.close();
+  h.run("UserPromptSubmit", { prompt: "go on" });
+  h.run("PreToolUse", { tool_name: "mcp__workglance__update_task", tool_input: { id: t.id }, tool_use_id: "n1" });
+  const db2 = openDb(join(h.home, "workglance.db"));
+  updateTask(db2, { session_id: "tab-a", cwd: CWD }, "agent", { id: t.id, note: "found two more" });
+  updateTask(db2, null, "user", { id: t.id, note: "check settings.py too" });
+  db2.close();
+  assert.equal(findings(), null);
+});
+
+test("the close reminder after edits in the turn, within the session cap, never without a known turn start", () => {
+  const h = harness();
+  h.run("SessionStart", {});
+  const { state, open, findings } = investigations(h);
+  h.run("UserPromptSubmit", { prompt: "audit and note it in AUDIT.md" });
+  const t = open("Audit");
+  h.run("PostToolUse", { tool_name: "Write", tool_input: { file_path: "C:/dev/shop/AUDIT.md" } });
+  const n = findings();
+  assert.match(n.reason, new RegExp(`W-${t.id} is still in progress`), "the close reminder, not the 'no card' nudge");
+
+  h.run("UserPromptSubmit", { prompt: "another" });
+  open("Capped");
+  state({ nudges: 8 });
+  assert.equal(findings(), null, "the cap counts both kinds");
+
+  state({ nudges: 0, turnAt: undefined });
+  open("Before the upgrade");
+  assert.equal(findings(), null, "no turnAt: which cards this turn opened is unknown");
 });
 
 test("garbage on stdin never breaks the tab", () => {

@@ -42,6 +42,19 @@ async function readBoard(sid: string, seenEventId: number): Promise<{ tasks: Tas
   } catch { return { tasks: [], changes: [] }; } finally { db.close(); }
 }
 
+/** Investigations still in progress that this tab's agent created or took since `since`. */
+async function openedThisTurn(sid: string, since: string): Promise<number[]> {
+  const file = join(WORKGLANCE_HOME, DB_FILE);
+  if (!existsSync(file)) return [];
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(file, { readOnly: true });
+  try {
+    return (db.prepare(`SELECT t.id FROM tasks t WHERE t.type = 'investigation' AND t.status = 'in_progress' AND EXISTS (
+      SELECT 1 FROM task_events e WHERE e.task_id = t.id AND e.session_id = ? AND e.actor = 'agent' AND e.at >= ?
+        AND (e.kind IN ('created','taken') OR (e.kind = 'status' AND e.to_status = 'in_progress'))) ORDER BY t.id`).all(sid, since) as { id: number }[]).map((r) => r.id);
+  } catch { return []; } finally { db.close(); }
+}
+
 /** Snapshot + the user's board changes, marking the changes as delivered. */
 async function contextFor(sid: string): Promise<string | null> {
   const st = loadState(sid);
@@ -109,8 +122,8 @@ async function main() {
     const protocol = protocolFor(cfg.columnRules);
     out({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx ? `${protocol}\n\n${ctx}` : protocol } });
   } else if (event === "UserPromptSubmit") {
-    setLive(sid, "working");
-    saveState(sid, { ...loadState(sid), turnAt: new Date().toISOString() });
+    const at = new Date().toISOString();
+    saveState(sid, { ...loadState(sid), live: "working", liveAt: at, liveDetail: undefined, turnAt: at });
     const ctx = await contextFor(sid);
     if (ctx) out({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: ctx } });
   } else if (event === "PermissionRequest" || (event === "Notification" && /permission/i.test(String(p.message ?? "")))) {
@@ -124,6 +137,7 @@ async function main() {
     // The identity of the call comes from the session, never from what the agent typed.
     const s = loadState(sid);
     s.changed = 0;
+    if (["create_task", "take_task", "update_task"].includes(mcpTool(String(p.tool_name)) ?? "")) s.cardCallAt = new Date().toISOString();
     saveState(sid, s);
     out({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow",
       // call_id lets the server recognize this call later: a call that failed (server down) is replayed
@@ -151,22 +165,25 @@ async function main() {
     const s = loadState(sid);
     const nudge = (reason: string, extra: Partial<typeof s> = {}) => {
       const now = new Date().toISOString();
-      saveState(sid, { ...s, ...extra, nudges: s.nudges + 1, changed: 0, live: "working", liveAt: now, liveDetail: undefined,
-        nudgeLog: [...(s.nudgeLog ?? []), now].slice(-20) });
+      saveState(sid, { ...s, ...extra, nudges: s.nudges + 1, changed: 0, live: "working", liveAt: now, liveDetail: undefined });
       out({ decision: "block", reason });
     };
-    const tasks = (await readBoard(sid, Number.MAX_SAFE_INTEGER)).tasks;
     if (s.changed) {
       // Work done while a task is in progress belongs to it: nothing to ask.
-      if (tasks.some((t) => t.status === "in_progress")) { s.changed = 0; saveState(sid, s); }
-      else { if (s.nudges < MAX_NUDGES_PER_SESSION) nudge(NUDGE); return; }
+      if ((await readBoard(sid, Number.MAX_SAFE_INTEGER)).tasks.some((t) => t.status === "in_progress")) { s.changed = 0; saveState(sid, s); }
+      else {
+        if (s.nudges < MAX_NUDGES_PER_SESSION) nudge(NUDGE, { nudgeLog: [...(s.nudgeLog ?? []), new Date().toISOString()].slice(-20) });
+        return;
+      }
     }
-    // An investigation opened in this turn and answered in the chat, but left open with no result: its
-    // findings never reach the board (the eval's investigation_with_findings failures were this).
-    if (end === "question" || s.nudges >= MAX_NUDGES_PER_SESSION) return;
-    const open = tasks.find((t) => t.type === "investigation" && t.status === "in_progress" && t.updated_at >= (s.turnAt ?? "")
-      && !(s.closeNudged ?? []).includes(t.id));
-    if (open) nudge(closeNudge(open.id), { closeNudged: [...(s.closeNudged ?? []), open.id].slice(-50) });
+    // An investigation this agent opened in this turn, answered in the chat and left in progress: its findings
+    // never reach the board (the eval's investigation_with_findings failures were this). Only the turn that
+    // opened it: a later note, or the user moving or commenting on it, is no reason to ask for its closing.
+    // No turnAt: the turn began before this hook knew about turns, so which cards it opened is unknown.
+    // No card call in this turn (most turns): nothing to look up.
+    if (end === "question" || s.nudges >= MAX_NUDGES_PER_SESSION || !s.turnAt || !s.cardCallAt || s.cardCallAt < s.turnAt) return;
+    const id = (await openedThisTurn(sid, s.turnAt)).find((i) => !(s.closeNudged ?? []).includes(i));
+    if (id !== undefined) nudge(closeNudge(id), { closeNudged: [...(s.closeNudged ?? []), id].slice(-50) });
   }
 }
 

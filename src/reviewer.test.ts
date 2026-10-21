@@ -48,6 +48,24 @@ test("cardFacts: a card with no repo of its own takes its commits' repo; a rebas
   assert.deepEqual(f!.pipelines, [{ sha: "new123456", branch: "main", number: 4230, state: "passed" }]);
 });
 
+test("cardFacts: the card's own repo wins; no repo and no commits, or commits in two repos: main is unknown", () => {
+  const { db, card, commit } = board();
+  db.prepare("INSERT INTO repos(id, name, main_ref, dev_ref) VALUES ('C:\\dev\\lib', 'lib', 'origin/master', NULL)").run();
+  const own = card("Own repo", true);
+  commit("aaa1234567", own, 1, 1);
+  db.prepare("UPDATE commits SET repo = 'C:\\dev\\lib' WHERE sha = 'aaa1234567'").run();
+  const none = card("Nothing yet", true);
+  const two = card("Two repos", true);
+  commit("bbb1234567", two, 1, 1);
+  commit("ccc1234567", two, 1, 1);
+  db.prepare("UPDATE commits SET repo = 'C:\\dev\\lib' WHERE sha = 'ccc1234567'").run();
+  db.prepare("UPDATE tasks SET repo = NULL WHERE id IN (?, ?)").run(none, two);
+  const [a, b, c] = cardFacts(db, [own, none, two]);
+  assert.deepEqual([a!.repo, a!.mainBranch], ["shop", "main"]);
+  assert.deepEqual([b!.repo, b!.mainBranch, b!.devBranch], ["other", null, null]);
+  assert.deepEqual([c!.repo, c!.mainBranch], ["other", null]);
+});
+
 test("reviewPrompt: the user's own rules where they wrote some, defaults elsewhere; the cards are data", () => {
   const { db, card } = board();
   const p = reviewPrompt({ done: "the main pipeline passed" }, cardFacts(db, [card("X", true)]), "Portuguese (Brazil)");

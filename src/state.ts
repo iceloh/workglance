@@ -14,7 +14,8 @@ export type TabState = {
   liveDetail?: string;      // e.g. the question it asked, the tool it wants permission for
   nudgeLog?: string[];      // when the last nudges were sent (ISO), to measure what the agent did next
   turnAt?: string;          // when the current turn's prompt came in
-  closeNudged?: number[];   // investigations already reminded to be closed with their findings
+  cardCallAt?: string;      // the last create_task / take_task / update_task call
+  closeNudged?: number[];   // investigations already reminded to be closed with their findings (one each)
 };
 
 /**

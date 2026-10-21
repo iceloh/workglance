@@ -16,6 +16,15 @@ test("an agent closes an investigation with its findings, not just a note; the u
   assert.equal(updateTask(db, null, "user", { id: u.id, status: "done", note: "enough" }).status, "done");
   const d = createTask(db, A, where, { title: "Look at Y", type: "investigation" });
   assert.equal(updateTask(db, A, "agent", { id: d.id, status: "dropped", note: "not needed" }).status, "dropped");
+
+  const w = createTask(db, A, where, { title: "Look at Z", type: "investigation" });
+  const events = () => (db.prepare("SELECT count(*) AS n FROM task_events WHERE task_id = ?").get(w.id) as { n: number }).n;
+  const before = events();
+  assert.throws(() => updateTask(db, A, "agent", { id: w.id, status: "done", note: "ok", result: "   " }), /closed with its findings/, "blank is no result");
+  assert.equal(events(), before, "a refused call writes nothing");
+  assert.equal((db.prepare("SELECT status FROM tasks WHERE id = ?").get(w.id) as { status: string }).status, "in_progress");
+  updateTask(db, A, "agent", { id: w.id, result: "Z is fine: no caller passes user input" });
+  assert.equal(updateTask(db, A, "agent", { id: w.id, status: "done", note: "findings recorded earlier" }).status, "done", "a result given before counts");
 });
 
 test("create, move with a note, close; history keeps who did what", () => {

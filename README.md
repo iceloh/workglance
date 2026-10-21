@@ -76,7 +76,8 @@ you") and a notification when a tab asks you something.
 ```
 
 - **Hooks** stamp every card operation with the tab's identity and folder, track whether a tab is working
-  or waiting for you, and remind an agent at the end of a turn when it changed code without a card.
+  or waiting for you, and remind an agent at the end of a turn when it changed code without a card or left
+  an investigation it just opened without its findings.
 - **The MCP server** gives agents six tools and a short protocol: what deserves a card, when to move it,
   what a result must say.
 - **Transcripts** are read incrementally to know prompts, edits, git commands and model usage. They are
@@ -92,8 +93,9 @@ Nothing to add to your `CLAUDE.md`: every session gets Workglance's instructions
   explanations, small edits); when to move a card; what a result must say; which board "the cards" means when
   there is another tracker; when to search past work. The full text is in [`src/protocol.ts`](src/protocol.ts).
 - **On every prompt:** the tab's open cards, and any change you made on the board that the tab hasn't seen.
-- **At the end of a turn** that changed code with no card, or that left an investigation it opened still in
-  progress: a one-line reminder (at most 8 per session). An investigation can't be closed without its findings.
+- **At the end of a turn** that changed code with no card, or that opened an investigation and left it in
+  progress: a one-line reminder (at most 8 per session, once per card). An agent can't close an investigation
+  without its findings; you can, from the board.
 - **With each tool:** its description ([`src/mcp.ts`](src/mcp.ts)).
 
 Card titles, notes and search results written by agents reach other agents marked as data, never as
