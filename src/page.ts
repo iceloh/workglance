@@ -201,7 +201,14 @@ ${langs.map((l) => `<option${l === digest.language ? " selected" : ""}>${esc(l)}
 <section class="panel">
 <h3>Untracked folders</h3>
 <p class="muted">Workglance doesn't look at these: tabs working there get no protocol, cards or nudges, nothing from them is stored, and no git command runs there. Their cards stay.</p>
-<input id="foldersearch" type="search" placeholder="Search the folders your tabs worked in, or paste a path" autocomplete="off" oninput="showFolders()" onfocus="showFolders()">
+<div class="untrackbar"><button type="button" class="btn primary" onclick="openBrowser()">Browse your PC…</button>
+<input id="foldersearch" type="search" placeholder="…or search the folders your tabs worked in, or paste a path" autocomplete="off" oninput="showFolders()" onfocus="showFolders()"></div>
+<div id="browser" class="browser" hidden>
+<div class="browsehead"><span id="roots" class="roots"></span><button type="button" class="mini" id="upbtn" onclick="cur&&browse(cur.parent)">↑ Up</button>
+<input id="browsepath" aria-label="Folder" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();browse(this.value)}"><button type="button" class="mini" onclick="browse(document.getElementById('browsepath').value)">Go</button></div>
+<div id="browselist" class="browselist"></div>
+<div class="browsefoot"><span id="browsestate" class="small muted"></span><button type="button" class="mini" onclick="closeBrowser()">Close</button><button type="button" class="btn danger" id="untrackhere" onclick="untrackHere()">Untrack this folder</button></div>
+</div>
 <div id="folderresults" class="folderlist"></div>
 <h4>Untracked now <span class="muted">${untracked.length}</span></h4>
 ${untracked.length ? `<div class="folderlist">${untracked.map((p) => `<div class="folderrow"><div class="what"><code>${esc(p)}</code></div><button class="mini" data-path="${esc(p)}" onclick="retrackPath(this)">Track again</button></div>`).join("")}</div>` : `<div class="muted small">None. Everything your tabs work on is tracked.</div>`}
@@ -225,17 +232,43 @@ syncTimes();
 // Folder search: the list comes once from the server; rows are built with textContent only.
 let folders=null;
 const ago=(iso)=>{const h=(Date.now()-Date.parse(iso))/3600e3,d=Math.round(h/24);return h<1?"in the last hour":h<24?Math.round(h)+" h ago":d===1?"yesterday":d+" days ago"};
+// Folder browser: any folder of this PC, listed by the local server (names of subfolders only).
+let cur=null;
+const unquote=(s)=>s.trim().replace(/^"(.*)"$/,"$1").trim();
+function openBrowser(){document.getElementById("browser").hidden=false;if(!cur)browse(null)}
+function closeBrowser(){document.getElementById("browser").hidden=true}
+async function browse(path){const list=document.getElementById("browselist");list.textContent="Loading…";
+  const j=await fetch("/api/browse"+(path?"?path="+encodeURIComponent(unquote(path)):"")).then(r=>r.json()).catch(()=>null);
+  if(!j){list.textContent="";list.append(el("div","small err","The local server didn't answer. Try again in a few seconds."));return}
+  cur=j;document.getElementById("browsepath").value=j.path;document.getElementById("upbtn").disabled=!j.parent;
+  const roots=document.getElementById("roots");roots.textContent="";
+  for(const r of j.roots){const b=el("button","mini",r.label);b.type="button";b.onclick=()=>browse(r.path);roots.append(b)}
+  list.textContent="";
+  if(j.error)list.append(el("div","small err",j.error));else if(!j.dirs.length)list.append(el("div","muted small","No folders inside."));
+  for(const d of j.dirs){const r=el("button","dirrow"+(d.untracked?" off":""));r.type="button";r.title=d.path;
+    r.append(el("span","dname",d.name),el("span","muted small",d.untracked?"untracked":"›"));r.onclick=()=>browse(d.path);list.append(r)}
+  document.querySelectorAll(".confirm").forEach(c=>c.remove());const u=document.getElementById("untrackhere"),st=document.getElementById("browsestate");
+  u.textContent="Untrack this folder";u.disabled=!!(j.untracked||j.error);st.className="small muted";
+  st.textContent=j.untracked?"Already untracked (this folder or one above it).":"Untracking "+j.path+" covers everything inside it."}
+// Untracking forgets what was stored about the folder, so it asks first: a box that says so, Cancel / Yes.
+function askUntrack(path,after){document.querySelectorAll(".confirm").forEach(c=>c.remove());
+  const box=el("div","confirm"),msg=el("div",null,"Untrack "+path+"?"),note=el("div","muted small","Workglance stops looking at it (no cards, nudges or git checks there) and forgets what it stored about it. Its cards stay, and you can track it again below.");
+  const row=el("div","confirmactions"),no=el("button","mini","Cancel"),yes=el("button","btn danger","Yes, untrack");no.type=yes.type="button";
+  no.onclick=()=>box.remove();
+  yes.onclick=async()=>{yes.disabled=no.disabled=true;yes.textContent="Untracking…";
+    const r=await fetch("/api/untrack",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path})}).catch(()=>null);
+    if(r&&r.ok){location.reload();return}const j=r?await r.json().catch(()=>({})):{};
+    note.className="small err";note.textContent="Not untracked: "+(j.error||"the local server didn't answer. Try again in a few seconds.");yes.disabled=no.disabled=false;yes.textContent="Yes, untrack"};
+  row.append(no,yes);box.append(msg,note,row);after.after(box);yes.focus()}
+function untrackHere(){if(cur&&!cur.untracked&&!cur.error)askUntrack(cur.path,document.querySelector(".browsefoot"))}
 async function showFolders(){if(!folders){folders=[];folders=await fetch("/api/folders").then(r=>r.json()).catch(()=>[])}
-  const q=document.getElementById("foldersearch").value.trim(),box=document.getElementById("folderresults");box.textContent="";
+  const q=unquote(document.getElementById("foldersearch").value),box=document.getElementById("folderresults");box.textContent="";
   const ql=q.toLowerCase(),hits=folders.filter(f=>!ql||f.path.toLowerCase().includes(ql)||f.name.toLowerCase().includes(ql)).slice(0,8);
   for(const f of hits)box.append(folderRow(f.name,f.path,(f.repo?"repo":"folder")+" · last used "+ago(f.lastAt)+" · "+f.tabs+" tab"+(f.tabs===1?"":"s")));
   if(/^([a-zA-Z]:[\\\\/]|\\/)/.test(q)&&!folders.some(f=>f.path.toLowerCase()===ql))box.append(folderRow("Untrack this path",q,"not seen in your tabs yet"));
   if(q&&!box.children.length)box.append(el("div","muted small","No folder your tabs worked in matches. Paste the full path to untrack another one."))}
 function folderRow(name,path,meta){const row=el("div","folderrow"),what=el("div","what");what.append(el("b",null,name),el("code",null,path),el("div","muted small",meta));
-  const b=el("button","mini","Untrack");let armed=false;
-  b.onclick=async()=>{if(!armed){armed=true;b.className="mini danger";b.textContent="Click again to untrack";what.lastChild.textContent="Stops tracking it and forgets what was stored about it; its cards stay. You can undo it below.";return}
-    b.disabled=true;const r=await fetch("/api/untrack",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path})}).catch(()=>null);
-    if(r&&r.ok)location.reload();else{const j=r?await r.json().catch(()=>({})):{};what.lastChild.className="small err";what.lastChild.textContent="Not untracked: "+(j.error||"the local server didn't answer");b.disabled=false}};
+  const b=el("button","mini","Untrack");b.type="button";b.onclick=()=>askUntrack(path,row);
   row.append(what,b);return row}</script>`);
 }
 
@@ -558,6 +591,19 @@ mark{background:rgba(254,230,0,.55);color:inherit;border-radius:3px;padding:0 2p
 .folderlist{margin-top:6px}.folderrow{display:flex;align-items:center;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:var(--bg)}
 .folderrow .what{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.folderrow code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mini.danger{color:#c2410c;border-color:#c2410c}
+.untrackbar{display:flex;gap:10px;align-items:center;margin-top:6px}.untrackbar input[type=search]{margin-top:0}.untrackbar .btn{white-space:nowrap}
+.browsefoot #browsestate{flex:1 1 280px}.browsefoot .btn,.browsefoot .mini{white-space:nowrap}
+.browser{margin-top:10px;border:1px solid var(--accent);border-radius:10px;background:var(--bg);overflow:hidden}
+.browsehead,.browsefoot{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--line)}
+.browsefoot{border-bottom:0;border-top:1px solid var(--line)}.browsefoot .grow{flex:1}.roots{display:flex;gap:4px}
+.browsehead input{flex:1;min-width:200px;font:12px ui-monospace,Consolas,monospace;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--text)}
+.browselist{max-height:320px;overflow:auto;padding:4px}
+.dirrow{display:flex;width:100%;justify-content:space-between;gap:10px;padding:6px 10px;border:0;border-radius:6px;background:none;color:var(--text);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.dirrow:hover{background:var(--card)}.dirrow .dname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dirrow.off .dname{color:var(--muted);text-decoration:line-through}
+.btn.danger:disabled{opacity:.45}
+.confirm{margin:6px 0 8px;padding:12px 14px;border:1px solid #c2410c;border-radius:8px;background:rgba(194,65,12,.08);display:flex;flex-direction:column;gap:6px}
+.confirm>div:first-child{font-weight:600;overflow-wrap:anywhere}.confirmactions{display:flex;gap:8px;justify-content:flex-end;align-items:center}
+.btn.danger{border-color:#c2410c}.btn.danger:hover:not(:disabled){background:#c2410c;color:#fff}
 @media (max-width:640px){.field{flex-direction:column;gap:6px}.field .label{flex:none;padding:0}}.newdigest{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 14px}
 .comment{display:flex;gap:8px;align-items:flex-start;margin:6px 0 4px}.comment textarea{flex:1;font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);resize:vertical}
 :root{--bg:#f6f7f9;--card:#fff;--text:#1d2330;--muted:#6b7280;--line:#e3e6eb;--chip:#eef1f5;--done:#1f8a4c;--testing:#b7791f;--prog:#2b6cb0;--local:#6b7280;--accent:#4f46e5}

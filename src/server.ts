@@ -25,7 +25,7 @@ import { backupIfDue } from "./ops.ts";
 import { metrics } from "./metrics.ts";
 import { renderMetricsPage, renderSettingsPage } from "./page.ts";
 import { dismiss } from "./attention.ts";
-import { knownFolders, retrack, untrack } from "./untrack.ts";
+import { browseFolder, knownFolders, retrack, untrack } from "./untrack.ts";
 import { isIgnored, parseLanguage, setConfig, untrackedFolders } from "./config.ts";
 
 /** The latest eval run (from `workglance eval`), if any. */
@@ -204,7 +204,8 @@ const server = http.createServer((req, res) => {
       let result: unknown = { ok: true };
       if (url.pathname === "/api/attention/dismiss") dismiss(db, String(body.key ?? ""), body.days ? Number(body.days) : null);
       else {
-        const path = String(body.path ?? "").trim();
+        // Explorer's "Copy as path" wraps the path in quotes.
+        const path = String(body.path ?? "").trim().replace(/^"(.*)"$/, "$1").trim();
         if (!/^[a-zA-Z]:[\\/]|^\//.test(path)) throw new TaskError("absolute folder path expected");
         result = url.pathname === "/api/untrack" ? untrack(db, path) : { untracked: retrack(path) };
       }
@@ -310,6 +311,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/browse") {
+    // The folder browser of Settings: subfolders of one folder of this machine (names only).
+    const cfg = loadConfig();
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" })
+      .end(JSON.stringify(browseFolder(url.searchParams.get("path"), (p) => isIgnored(cfg, p))));
+    return;
+  }
   if (url.pathname === "/api/folders") {
     // For the untrack search in Settings: the folders tabs worked in. Already untracked ones and Claude Code's
     // own folder (its memory and settings, read by every tab) are left out.

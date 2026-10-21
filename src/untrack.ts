@@ -1,5 +1,8 @@
 // Untracking a folder from the screen: workglance stops looking at it, and forgets what it stored about it.
 // Tasks stay (they are your history and you may want them); everything gathered from the folder goes.
+import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { posix, win32 } from "node:path";
 import type { Db } from "./db.ts";
 import { setUntracked } from "./config.ts";
 import { normalizeDir, pathKey } from "./transcript.ts";
@@ -61,6 +64,34 @@ export function knownFolders(db: Db, ignored: (path: string) => boolean, limit =
   }
   return [...by.entries()].map(([key, g]) => ({ path: g.path, name: names.get(key) ?? g.path.split(/[\\/]/).filter(Boolean).at(-1) ?? g.path,
     repo: g.repo, lastAt: g.lastAt, tabs: g.tabs.size })).sort((a, b) => b.lastAt.localeCompare(a.lastAt)).slice(0, limit);
+}
+
+export type Browse = { path: string; parent: string | null; dirs: { name: string; path: string; untracked: boolean }[]; roots: { label: string; path: string }[]; untracked: boolean; error?: string };
+
+/**
+ * One folder of this machine for the untrack browser in Settings: its subfolders (names only, never files),
+ * where to go up, and the roots to jump to (each drive on Windows, "/" elsewhere, the home folder).
+ * The server only answers this machine (Host check), so a web page can't read it.
+ */
+export function browseFolder(path: string | null, ignored: (p: string) => boolean,
+  env: { platform?: string; home?: string; exists?: (p: string) => boolean; list?: (p: string) => { name: string; dir: boolean }[] } = {}): Browse {
+  const platform = env.platform ?? process.platform, home = env.home ?? homedir();
+  const exists = env.exists ?? existsSync;
+  const list = env.list ?? ((p) => readdirSync(p, { withFileTypes: true }).map((d) => ({ name: d.name, dir: d.isDirectory() })));
+  const p = platform === "win32" ? win32 : posix;
+  const roots = [...(platform === "win32" ? "CDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((l) => `${l}:\\`).filter(exists).map((r) => ({ label: r.slice(0, 2), path: r })) : [{ label: "/", path: "/" }]),
+    { label: "Home", path: home }];
+  const at = p.resolve(path?.trim() ? path.trim() : home);
+  const parent = p.dirname(at) === at ? null : p.dirname(at);
+  const base = { path: at, parent, roots, untracked: ignored(at) };
+  try {
+    const dirs = list(at).filter((d) => d.dir).map((d) => ({ name: d.name, path: p.join(at, d.name) }))
+      .sort((a, b) => Number(a.name.startsWith(".")) - Number(b.name.startsWith(".")) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+      .slice(0, 500).map((d) => ({ ...d, untracked: ignored(d.path) }));
+    return { ...base, dirs };
+  } catch (e) {
+    return { ...base, dirs: [], error: (e as NodeJS.ErrnoException).code === "ENOENT" ? "This folder doesn't exist." : "This folder can't be read." };
+  }
 }
 
 export function untrack(db: Db, path: string): { untracked: string[]; purged: Record<string, number> } {

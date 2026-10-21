@@ -1,7 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "./db.ts";
-import { knownFolders, purgeFolder } from "./untrack.ts";
+import { browseFolder, knownFolders, purgeFolder } from "./untrack.ts";
+
+test("browseFolder: subfolders only, dot-folders last, untracked marked, drives and home as roots, errors said", () => {
+  const tree: Record<string, { name: string; dir: boolean }[]> = {
+    "C:\\dev": [{ name: "shop", dir: true }, { name: ".cache", dir: true }, { name: "notes.txt", dir: false }, { name: "Api", dir: true }],
+  };
+  const env = { platform: "win32", home: "C:\\Users\\me", exists: (p: string) => p === "C:\\" || p === "D:\\",
+    list: (p: string) => { if (!tree[p]) throw Object.assign(new Error("nope"), { code: "ENOENT" }); return tree[p]!; } };
+  const b = browseFolder("C:\\dev\\", (p) => p === "C:\\dev\\shop", env);
+  assert.equal(b.path, "C:\\dev");
+  assert.equal(b.parent, "C:\\");
+  assert.deepEqual(b.dirs.map((d) => [d.name, d.untracked]), [["Api", false], ["shop", true], [".cache", false]]);
+  assert.deepEqual(b.roots.map((r) => r.label), ["C:", "D:", "Home"]);
+  assert.equal(browseFolder("C:\\", () => false, env).parent, null, "a drive has nothing above it");
+  assert.equal(browseFolder("C:\\gone", () => false, env).error, "This folder doesn't exist.");
+  assert.equal(browseFolder(null, () => false, env).path, "C:\\Users\\me", "starts at home");
+});
 import { createTask } from "./tasks.ts";
 import { normalizeDir } from "./transcript.ts";
 
