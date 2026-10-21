@@ -2,7 +2,7 @@
 // Tasks stay (they are your history and you may want them); everything gathered from the folder goes.
 import type { Db } from "./db.ts";
 import { setUntracked } from "./config.ts";
-import { pathKey } from "./transcript.ts";
+import { normalizeDir, pathKey } from "./transcript.ts";
 
 /**
  * Rows whose path is the folder or anything inside it, `_` and `%` taken literally. Case-folded exactly
@@ -35,6 +35,32 @@ export function purgeFolder(db: Db, path: string): Record<string, number> {
     throw e;
   }
   return out;
+}
+
+export type KnownFolder = { path: string; name: string; repo: boolean; lastAt: string; tabs: number };
+
+/**
+ * The folders tabs worked in, most recent first: what the untrack search offers. A folder inside a repo's
+ * checkout shows as that checkout (one row per worktree, not per subfolder); one outside any repo, as itself.
+ * Folders already ignored are left out.
+ */
+export function knownFolders(db: Db, ignored: (path: string) => boolean, limit = 300): KnownFolder[] {
+  const root = new Map((db.prepare("SELECT path, worktree FROM dirs WHERE worktree IS NOT NULL").all() as { path: string; worktree: string }[]).map((r) => [r.path, r.worktree]));
+  // A repo's extra worktrees by repo and worktree name ("shop · fix-cart"): they all share the repo's name.
+  const names = new Map((db.prepare("SELECT w.path, w.repo, r.name FROM worktrees w JOIN repos r ON r.id = w.repo").all() as { path: string; repo: string; name: string }[])
+    .map((r) => [pathKey(r.path), pathKey(r.path) === pathKey(r.repo) ? r.name : `${r.name} · ${r.path.split(/[\\/]/).filter(Boolean).at(-1)}`]));
+  const rows = db.prepare("SELECT cwd, session_id, max(last_at) AS last FROM locations GROUP BY cwd, session_id").all() as { cwd: string; session_id: string; last: string }[];
+  const by = new Map<string, { path: string; repo: boolean; lastAt: string; tabs: Set<string> }>();
+  for (const r of rows) {
+    const wt = root.get(normalizeDir(r.cwd));
+    const path = wt ?? normalizeDir(r.cwd), key = pathKey(path);
+    if (ignored(path)) continue;
+    const g = by.get(key) ?? by.set(key, { path, repo: !!wt, lastAt: r.last, tabs: new Set() }).get(key)!;
+    if (r.last > g.lastAt) g.lastAt = r.last;
+    g.tabs.add(r.session_id);
+  }
+  return [...by.entries()].map(([key, g]) => ({ path: g.path, name: names.get(key) ?? g.path.split(/[\\/]/).filter(Boolean).at(-1) ?? g.path,
+    repo: g.repo, lastAt: g.lastAt, tabs: g.tabs.size })).sort((a, b) => b.lastAt.localeCompare(a.lastAt)).slice(0, limit);
 }
 
 export function untrack(db: Db, path: string): { untracked: string[]; purged: Record<string, number> } {

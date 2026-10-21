@@ -167,25 +167,70 @@ function attentionPanel(items: Attention[]): string {
     </span></div>`).join("")}${items.length > 12 ? `<div class="muted small">… ${items.length - 12} more</div>` : ""}</div>`;
 }
 
+/** The summary languages offered in Settings (any other one can still be set in config.json). */
+export const LANGUAGES = ["English", "Portuguese (Brazil)", "Portuguese (Portugal)", "Spanish", "French", "German", "Italian", "Dutch",
+  "Polish", "Russian", "Ukrainian", "Turkish", "Arabic", "Hebrew", "Hindi", "Indonesian", "Vietnamese", "Japanese", "Korean",
+  "Chinese (Simplified)", "Chinese (Traditional)"];
+
+const timeChip = (t: string) => `<span class="timechip"><input type="time" value="${esc(t)}" required aria-label="Digest time"><button type="button" class="x" title="Remove this time" onclick="removeTime(this)">×</button></span>`;
+
 export function renderSettingsPage(untracked: string[], digest: { times: string[]; summary: boolean; language: string } = { times: ["08:00"], summary: true, language: "" }): string {
-  return shell("Settings", `${topNav("settings")}<main class="detail">
-<h2>Digest</h2>
-<p class="muted">At each of these times Workglance writes a digest of everything since the previous one: what got done, what waits for you, commits, model work. Several times a day are fine (e.g. <code>08:00, 13:00, 18:00</code>); if the computer was off, one digest covers the whole gap.</p>
-<form class="comment" onsubmit="return saveDigest(this)"><input name="times" value="${esc(digest.times.join(", "))}" placeholder="08:00, 13:00, 18:00" required>
-<label class="muted small"><input type="checkbox" name="summary"${digest.summary ? " checked" : ""}> also a written summary by <code>claude -p</code> (your subscription)</label>
-<label class="muted small">Summary language <input name="language" value="${esc(digest.language)}" placeholder="the language of your cards" maxlength="40"></label>
-<button class="btn">Save</button> <span class="small" id="digeststatus"></span></form>
-<h2>Untracked folders</h2>
-<p class="muted">Workglance doesn't look at these: tabs working there get no protocol, cards or nudges, nothing from them is stored, and no git command runs there.</p>
-${untracked.length ? `<table>${untracked.map((p) => `<tr><td><code>${esc(p)}</code></td><td><button class="mini" data-path="${esc(p)}" onclick="retrackPath(this)">Track again</button></td></tr>`).join("")}</table>` : `<div class="muted">None.</div>`}
-<form class="comment" onsubmit="return untrackTyped(this)"><input name="path" placeholder="C:/dev/some-repo" required><button class="btn">Untrack folder</button></form>
+  const langs = digest.language && !LANGUAGES.includes(digest.language) ? [digest.language, ...LANGUAGES] : LANGUAGES;
+  return shell("Settings", `${topNav("settings")}<main class="detail settings">
+<h2>Settings</h2>
+<section class="panel">
+<h3>Digest</h3>
+<p class="muted">At each of these times Workglance writes a digest of everything since the previous one: what got done, what waits for you, commits, model work. If the computer was off, one digest covers the whole gap.</p>
+<form onsubmit="return saveDigest(this)">
+<div class="field"><span class="label">Times</span><div class="fieldbody"><div class="times" id="times">${digest.times.map(timeChip).join("")}</div>
+<div class="row"><button type="button" class="mini" id="addtime" onclick="addTime()">+ Add a time</button><span class="muted small">up to 6 a day</span></div></div></div>
+<div class="field"><label class="label" for="language">Summary language</label><div class="fieldbody"><select id="language" name="language">
+<option value=""${digest.language ? "" : " selected"}>Automatic: the language of your cards</option>
+${langs.map((l) => `<option${l === digest.language ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></div></div>
+<div class="field"><span class="label">Summary</span><div class="fieldbody"><label class="check"><input type="checkbox" name="summary"${digest.summary ? " checked" : ""}> Write one with <code>claude -p</code> when each digest is made</label>
+<div class="muted small">Runs once per digest on your Claude subscription; nothing is sent anywhere else.</div></div></div>
+<div class="formactions"><button class="btn primary">Save</button><span class="small" id="digeststatus"></span></div>
+</form>
+</section>
+<section class="panel">
+<h3>Untracked folders</h3>
+<p class="muted">Workglance doesn't look at these: tabs working there get no protocol, cards or nudges, nothing from them is stored, and no git command runs there. Their cards stay.</p>
+<input id="foldersearch" type="search" placeholder="Search the folders your tabs worked in, or paste a path" autocomplete="off" oninput="showFolders()" onfocus="showFolders()">
+<div id="folderresults" class="folderlist"></div>
+<h4>Untracked now <span class="muted">${untracked.length}</span></h4>
+${untracked.length ? `<div class="folderlist">${untracked.map((p) => `<div class="folderrow"><div class="what"><code>${esc(p)}</code></div><button class="mini" data-path="${esc(p)}" onclick="retrackPath(this)">Track again</button></div>`).join("")}</div>` : `<div class="muted small">None. Everything your tabs work on is tracked.</div>`}
+</section>
 </main><script>${BOARD_JS}
-function untrackTyped(f){const v=f.path.value.trim();if(v)post("/api/untrack",{path:v});return false}
+const MAXTIMES=6;
+function timeInputs(){return [...document.querySelectorAll("#times input")]}
+function syncTimes(){const n=timeInputs().length;document.getElementById("addtime").disabled=n>=MAXTIMES;
+  document.querySelectorAll("#times .x").forEach(b=>{b.disabled=n<=1;b.title=n<=1?"At least one time":"Remove this time"})}
+function addTime(){if(timeInputs().length>=MAXTIMES)return;const c=el("span","timechip"),i=el("input");i.type="time";i.required=true;i.value="18:00";
+  const x=el("button","x","×");x.type="button";x.onclick=()=>removeTime(x);c.append(i,x);document.getElementById("times").append(c);i.focus();syncTimes()}
+function removeTime(b){if(timeInputs().length>1)b.parentElement.remove();syncTimes()}
 async function saveDigest(f){const s=document.getElementById("digeststatus");
-  const r=await fetch("/api/settings/digest",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({times:f.times.value,summary:f.summary.checked,language:f.language.value})}).catch(()=>null);
+  const times=timeInputs().map(i=>i.value).filter(Boolean);
+  const r=await fetch("/api/settings/digest",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({times,summary:f.summary.checked,language:f.language.value})}).catch(()=>null);
   const j=r?await r.json().catch(()=>({})):{};
-  if(r&&r.ok){f.times.value=j.times.join(", ");f.language.value=j.language;s.className="small ok";s.textContent="Saved: digests at "+j.times.join(", ")+(j.language?", summary in "+j.language:"")}
-  else{s.className="small err";s.textContent="Not saved: "+(j.error||"the local server didn't answer")}return false}</script>`);
+  if(!r||!r.ok){s.className="small err";s.textContent="Not saved: "+(j.error||"the local server didn't answer");return false}
+  const box=document.getElementById("times");box.textContent="";for(const t of j.times){const c=el("span","timechip"),i=el("input"),x=el("button","x","×");i.type="time";i.required=true;i.value=t;x.type="button";x.onclick=()=>removeTime(x);c.append(i,x);box.append(c)}
+  syncTimes();s.className="small ok";s.textContent="Saved: digests at "+j.times.join(", ")+" · summary "+(j.summary?(j.language?"in "+j.language:"in your cards' language"):"off");return false}
+syncTimes();
+// Folder search: the list comes once from the server; rows are built with textContent only.
+let folders=null;
+const ago=(iso)=>{const h=(Date.now()-Date.parse(iso))/3600e3,d=Math.round(h/24);return h<1?"in the last hour":h<24?Math.round(h)+" h ago":d===1?"yesterday":d+" days ago"};
+async function showFolders(){if(!folders){folders=[];folders=await fetch("/api/folders").then(r=>r.json()).catch(()=>[])}
+  const q=document.getElementById("foldersearch").value.trim(),box=document.getElementById("folderresults");box.textContent="";
+  const ql=q.toLowerCase(),hits=folders.filter(f=>!ql||f.path.toLowerCase().includes(ql)||f.name.toLowerCase().includes(ql)).slice(0,8);
+  for(const f of hits)box.append(folderRow(f.name,f.path,(f.repo?"repo":"folder")+" · last used "+ago(f.lastAt)+" · "+f.tabs+" tab"+(f.tabs===1?"":"s")));
+  if(/^([a-zA-Z]:[\\\\/]|\\/)/.test(q)&&!folders.some(f=>f.path.toLowerCase()===ql))box.append(folderRow("Untrack this path",q,"not seen in your tabs yet"));
+  if(q&&!box.children.length)box.append(el("div","muted small","No folder your tabs worked in matches. Paste the full path to untrack another one."))}
+function folderRow(name,path,meta){const row=el("div","folderrow"),what=el("div","what");what.append(el("b",null,name),el("code",null,path),el("div","muted small",meta));
+  const b=el("button","mini","Untrack");let armed=false;
+  b.onclick=async()=>{if(!armed){armed=true;b.className="mini danger";b.textContent="Click again to untrack";what.lastChild.textContent="Stops tracking it and forgets what was stored about it; its cards stay. You can undo it below.";return}
+    b.disabled=true;const r=await fetch("/api/untrack",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path})}).catch(()=>null);
+    if(r&&r.ok)location.reload();else{const j=r?await r.json().catch(()=>({})):{};what.lastChild.className="small err";what.lastChild.textContent="Not untracked: "+(j.error||"the local server didn't answer");b.disabled=false}};
+  row.append(what,b);return row}</script>`);
 }
 
 export function renderSearchPage(q: string, hits: Hit[], titles: Map<string, string | null>): string {
@@ -476,7 +521,21 @@ mark{background:rgba(254,230,0,.55);color:inherit;border-radius:3px;padding:0 2p
 .actions{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}.btn{font:inherit;font-size:13px;padding:5px 11px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--text);cursor:pointer}
 .btn:hover{border-color:var(--accent)}.btn.danger{color:#c2410c}.btn:disabled{opacity:.5;cursor:default;border-color:var(--line)}
 .reviewbar{position:sticky;bottom:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding:10px 0;background:var(--bg);border-top:1px solid var(--line)}
-.small.ok{color:#1f8a4c}.small.err{color:#c2410c}.newdigest{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 14px}
+.small.ok{color:#1f8a4c}.small.err{color:#c2410c}
+.settings .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px 20px 16px;margin:0 0 18px}
+.settings .panel h3{font-size:15px;margin:14px 0 4px}.settings .panel h4{font-size:13px;margin:18px 0 6px}
+.field{display:flex;gap:16px;padding:12px 0;border-top:1px solid var(--line)}.field .label{flex:0 0 150px;font-weight:600;font-size:13px;padding-top:5px}
+.fieldbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;align-items:flex-start}.fieldbody .row{display:flex;align-items:center;gap:10px}
+.times{display:flex;gap:8px;flex-wrap:wrap}.timechip{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:8px;padding:2px 2px 2px 8px;background:var(--bg)}
+.timechip input{border:0;background:transparent;color:var(--text);font:inherit;color-scheme:light dark}.timechip .x{border:0;background:none;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;padding:2px 6px}
+.timechip .x:hover:not(:disabled){color:#c2410c}.timechip .x:disabled{opacity:.3;cursor:default}
+.settings select,.settings input[type=search]{font:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);color-scheme:light dark}
+.settings input[type=search]{width:100%;box-sizing:border-box;margin-top:6px}.check{display:flex;gap:8px;align-items:center;font-size:13px}
+.formactions{display:flex;align-items:center;gap:12px;padding-top:12px;border-top:1px solid var(--line)}
+.folderlist{margin-top:6px}.folderrow{display:flex;align-items:center;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:var(--bg)}
+.folderrow .what{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.folderrow code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mini.danger{color:#c2410c;border-color:#c2410c}
+@media (max-width:640px){.field{flex-direction:column;gap:6px}.field .label{flex:none;padding:0}}.newdigest{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 14px}
 .comment{display:flex;gap:8px;align-items:flex-start;margin:6px 0 4px}.comment textarea{flex:1;font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);resize:vertical}
 :root{--bg:#f6f7f9;--card:#fff;--text:#1d2330;--muted:#6b7280;--line:#e3e6eb;--chip:#eef1f5;--done:#1f8a4c;--testing:#b7791f;--prog:#2b6cb0;--local:#6b7280;--accent:#4f46e5}
 @media (prefers-color-scheme:dark){:root{--bg:#111318;--card:#1a1d24;--text:#e6e8ec;--muted:#9aa1ad;--line:#2a2e37;--chip:#252a33;--accent:#8b85ff}}

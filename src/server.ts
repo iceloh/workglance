@@ -3,7 +3,9 @@
 import http from "node:http";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { Worker } from "node:worker_threads";
+import { isUnder } from "./transcript.ts";
 import { openDb, WORKGLANCE_HOME } from "./db.ts";
 import { appFile } from "./paths.ts";
 import { iconSvg } from "./icon.ts";
@@ -23,8 +25,8 @@ import { backupIfDue } from "./ops.ts";
 import { metrics } from "./metrics.ts";
 import { renderMetricsPage, renderSettingsPage } from "./page.ts";
 import { dismiss } from "./attention.ts";
-import { retrack, untrack } from "./untrack.ts";
-import { parseLanguage, setConfig, untrackedFolders } from "./config.ts";
+import { knownFolders, retrack, untrack } from "./untrack.ts";
+import { isIgnored, parseLanguage, setConfig, untrackedFolders } from "./config.ts";
 
 /** The latest eval run (from `workglance eval`), if any. */
 function latestEvals(): { at: string; model: string; results: { name: string; pass: boolean; failures: string[]; warnings: string[]; costUsd: number }[] } | null {
@@ -308,6 +310,14 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/folders") {
+    // For the untrack search in Settings: the folders tabs worked in. Already untracked ones and Claude Code's
+    // own folder (its memory and settings, read by every tab) are left out.
+    const cfg = loadConfig(), claudeDir = join(homedir(), ".claude");
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" })
+      .end(JSON.stringify(knownFolders(db, (p) => isIgnored(cfg, p) || isUnder(p, claudeDir))));
+    return;
+  }
   if (url.pathname === "/api/status") {
     // For the VS Code extension: who needs you, and counts for the status bar. Cheap: no scan, no git.
     const live = liveTabs(db, allStates());

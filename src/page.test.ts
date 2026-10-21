@@ -1,6 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BOARD_JS, short } from "./page.ts";
+import { BOARD_JS, LANGUAGES, renderSettingsPage, short } from "./page.ts";
+
+test("settings page: its script parses; time pickers, a language list with Automatic first, escaped values", () => {
+  const html = renderSettingsPage(["C:/tmp/x"], { times: ["08:00", "18:30"], summary: true, language: "Klingon <b>" });
+  for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(m[1]!));
+  assert.equal(html.match(/<input type="time"/g)?.length, 2);
+  assert.match(html, /<option value="">Automatic: the language of your cards<\/option>/);
+  assert.match(html, /<option selected>Klingon &lt;b&gt;<\/option>/, "a language from config.json stays selectable, escaped");
+  assert.ok(LANGUAGES.includes("Portuguese (Brazil)"));
+  assert.doesNotMatch(html.slice(html.indexOf("const MAXTIMES")), /alert\(|confirm\(/);
+});
 
 test("BOARD_JS: the board's browser script parses (an error there silently breaks every page)", () => {
   assert.doesNotThrow(() => new Function(BOARD_JS));
