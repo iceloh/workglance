@@ -63,7 +63,8 @@ Node 24+ runs `src/*.ts` directly (type stripping; imports keep the `.ts` extens
 ## Before you say it's done
 
 `npm test`, `npm run typecheck`, and for anything touching install, hooks or packaging, the smoke test. Write
-decisions that aren't obvious from the code into PLAN.md.
+decisions that aren't obvious from the code into PLAN.md. Before a release, `/review-squad` (`.claude/commands/`)
+reviews what changed since the last tag against these rules.
 
 ## Releasing
 

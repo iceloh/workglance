@@ -36,6 +36,10 @@ Node 24+ runs the TypeScript sources directly. To use your checkout as your real
   into a temp folder with its own Claude config and port, runs a hook, the server, doctor and uninstall.
   CI runs it on Windows, macOS and Linux.
 - Decisions that are not obvious from the code go into `PLAN.md`.
+- Using Claude Code? `/review-squad` reviews your change with six specialists (architecture, security, tests,
+  Windows/macOS/Linux, what agents are told, UI/docs/release) and a lead who checks their blockers in the
+  code; read-only, it fixes nothing. `/invariant-scan` looks for the same rules across the whole repo. Both
+  live in `.claude/`.
 
 ## Ground rules
 
