@@ -22,16 +22,20 @@ on your machine, without you writing anything down.
   on its next prompt. Your changes always win over the agent's.
 - **Who needs you, live.** A rail of tabs: waiting for an answer, waiting for a permission, working, idle.
   One click opens that exact Claude Code session, in the VS Code window that has it.
+- **One repo or one tab at a time.** Filter the board by repo and by tab from the top bar; the filter stays
+  in the URL, so you can bookmark "my work on this repo".
 - **Verified, not just declared.** Commits are linked to their card and followed through rebases into
   dev and main, with CI status per card (GitHub Actions or Bitbucket Pipelines). A card closed as done whose commits never reached main gets a
   warning.
-- **Review inside the card.** See the card's diff, comment on lines, send the review to the tab.
+- **Review inside the card.** See the card's diff, click a line to comment, send all comments to the tab
+  as one message; it reads them on its next prompt.
 - **Shared work memory.** Agents can search what any tab already did (`search_history`) before starting
   something that may have been done or investigated before, and see the open cards of every repo
   (`list_tasks` with `all`), so a tab in one repo can say which projects are active and pick up work in another.
   Ask any tab "which repos have open cards?" or "what did each repo cost in AI this month?" (`cost_by_repo`).
 - **And:** cost per card and per repo at API list prices, full-text search, a digest at the times you choose
-  (grouped by repo, with what needs you on top), "needs attention" for
+  or on demand ("what did I do since the last one?"), grouped by repo with what needs you on top and its
+  summary in your language, "needs attention" for
   stuck work and forgotten worktrees, metrics on how well the agents keep the board.
 
 ![A card: tabs, CI, the user's comment waiting for the tab, the timeline of events and commits](docs/img/card.png)

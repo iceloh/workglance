@@ -2,7 +2,7 @@
   "name": "workglance",
   "displayName": "Workglance: what every AI coding tab did",
   "description": "Five Claude Code tabs open? See which one needs you right now, what each one did across every repo, and whether the work really shipped. A task board your agents keep themselves. Local and private.",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "publisher": "workglance",
   "icon": "icon.png",
   "galleryBanner": {
