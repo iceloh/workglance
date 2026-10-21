@@ -228,3 +228,13 @@ Measured: each hook call ~190 ms (Node startup); the per-edit hook is async and 
   card's facts change after a git/CI refresh (a fingerprint per card in `meta`; the first look only records it,
   so turning it on never reviews everything at once). Not on a timer: nothing to decide when nothing changed.
   A deploy that doesn't go through CI is invisible to it, by design. Actor "auto", "Workglance" on the timeline.
+- **Investigations closed with their findings** (21/10/2026). The eval's `investigation_with_findings` failed
+  about one run in three: the agent opened the card, wrote the whole report in the chat and ended the turn
+  with the card still in progress (it had loaded only create_task, so closing needed another tool lookup).
+  Two fixes, no protocol change: an end-of-turn reminder for an investigation opened or touched in this turn
+  and left in progress (once per card, not when the turn ends with a question), and `update_task` refuses an
+  agent's `done` on an investigation with no result. After: 7 of 9 runs passed; one closed with no result
+  (before the refusal existed), one made no card at all for a 5-file audit (a judgment call, left alone).
+  `workglance eval --keep` leaves a run's repo and transcript, to read what the agent did.
+- **A task is placed in a worktree only once git knows it** (21/10/2026): a tab edits a worktree it just
+  made before the git refresh records it, and the task was placed there with no repo or branch, for good (W-55).

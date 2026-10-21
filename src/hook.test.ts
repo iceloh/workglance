@@ -110,6 +110,27 @@ test("with a task in progress: prompts see the snapshot and edits belong to it (
   assert.equal(h.run("Stop", { stop_hook_active: false }), null);
 });
 
+test("an investigation opened this turn and left in progress: one reminder to close it with its findings", () => {
+  const h = harness();
+  h.run("SessionStart", {});
+  const db = openDb(join(h.home, "workglance.db"));
+  const old = createTask(db, { session_id: "tab-a", cwd: CWD }, { repo: null, worktree: null, branch: null }, { title: "Old audit", type: "investigation" });
+  db.close();
+  h.run("UserPromptSubmit", { prompt: "anything else?" });
+  assert.equal(h.run("Stop", { stop_hook_active: false, last_assistant_message: "Done." }), null, "opened in an earlier turn: not this turn's report");
+
+  const db2 = openDb(join(h.home, "workglance.db"));
+  db2.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(old.id);
+  const t = createTask(db2, { session_id: "tab-a", cwd: CWD }, { repo: null, worktree: null, branch: null }, { title: "Security audit", type: "investigation" });
+  db2.close();
+  assert.equal(h.run("Stop", { stop_hook_active: false, last_assistant_message: "Which file should I start with?" }), null, "a question: not finished");
+  const n = h.run("Stop", { stop_hook_active: false, last_assistant_message: "## Findings\n1. SQL injection in users.py:4" });
+  assert.equal(n.decision, "block");
+  assert.match(n.reason, new RegExp(`W-${t.id} is still in progress.*update_task status=done with the findings`));
+  assert.equal(h.run("Stop", { stop_hook_active: true }), null, "no loop while it answers");
+  assert.equal(h.run("Stop", { stop_hook_active: false, last_assistant_message: "Still digging." }), null, "once per card");
+});
+
 test("garbage on stdin never breaks the tab", () => {
   const h = harness();
   const r = spawnSync(process.execPath, ["--no-warnings", HOOK, "Stop"], { input: "not json", env: h.env, encoding: "utf8" });

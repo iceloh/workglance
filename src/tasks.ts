@@ -62,6 +62,9 @@ export function updateTask(db: Db, stamp: Stamp | null, actor: "agent" | "user" 
   const note = input.note?.trim() || null;
   if (input.status && input.status !== t.status) {
     if (!note) throw new TaskError("a note is required when the status changes: say what was done or why");
+    // Its findings are the point of an investigation: one closed with none leaves the board empty-handed.
+    if (actor === "agent" && input.status === "done" && t.type === "investigation" && !input.result?.trim() && !t.result)
+      throw new TaskError("an investigation is closed with its findings: pass them in result (the note only says why it is done)");
     const closing = input.status === "done" || input.status === "dropped";
     db.prepare(`UPDATE tasks SET status = ?, updated_at = ?, started_at = COALESCE(started_at, CASE WHEN ? = 'in_progress' THEN ? END),
       closed_at = CASE WHEN ? THEN ? ELSE NULL END, result = COALESCE(?, result) WHERE id = ?`)

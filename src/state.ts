@@ -13,6 +13,8 @@ export type TabState = {
   liveAt?: string;
   liveDetail?: string;      // e.g. the question it asked, the tool it wants permission for
   nudgeLog?: string[];      // when the last nudges were sent (ISO), to measure what the agent did next
+  turnAt?: string;          // when the current turn's prompt came in
+  closeNudged?: number[];   // investigations already reminded to be closed with their findings
 };
 
 /**

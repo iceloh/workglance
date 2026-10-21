@@ -54,3 +54,10 @@ export const NUDGE = "You changed files or committed in this turn, but the work 
   + "If it is a MAIN piece of work, link it now: take_task an open task or create_task (and update_task when it is done); "
   + "if you committed, pass those SHAs (from git's output) in commits=. "
   + "If it was a small edit or not a task, just finish your reply without mentioning tasks.";
+
+/** At the end of a turn that left an investigation it opened in progress (see hook.ts). */
+export function closeNudge(id: number): string {
+  return `The investigation W-${id} is still in progress on the workglance board. `
+    + "If you reported its findings in this turn, close it now: update_task status=done with the findings as the result. "
+    + "If it is not finished yet, just end your turn without mentioning tasks.";
+}

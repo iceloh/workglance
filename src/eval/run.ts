@@ -75,7 +75,7 @@ function judge(checks: Check[] | undefined, b: Board, failures: string[], warnin
   }
 }
 
-export async function runScenario(s: Scenario, port: number, model: string): Promise<ScenarioResult> {
+export async function runScenario(s: Scenario, port: number, model: string, keep = false): Promise<ScenarioResult> {
   const t0 = Date.now();
   // The long real path: Windows' short form (C:\Users\JANEDO~1\...) made Claude Code hold every write for
   // manual approval, and the agent stopped mid-task (two "failures" of the first baseline were this).
@@ -114,7 +114,9 @@ export async function runScenario(s: Scenario, port: number, model: string): Pro
   if (!error) judge(s.expect, board, failures, warnings, "");
   // A scenario's repo, home and transcripts are throwaway: never leave them behind in the temp folder.
   // Claude keeps each session's log under ~/.claude/projects/<the repo path, encoded>: remove that too.
-  for (const dir of [root, join(CLAUDE_PROJECTS, repo.replace(/[^a-zA-Z0-9]/g, "-"))]) {
+  // --keep leaves both, to read what the agent did when a scenario fails.
+  if (keep) console.log(`${s.name}: kept ${root} and ${join(CLAUDE_PROJECTS, repo.replace(/[^a-zA-Z0-9]/g, "-"))}`);
+  else for (const dir of [root, join(CLAUDE_PROJECTS, repo.replace(/[^a-zA-Z0-9]/g, "-"))]) {
     try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 }); } catch {}
   }
   return { name: s.name, pass: failures.length === 0, failures, warnings, costUsd: cost, turns, ms: Date.now() - t0, tasks: board.tasks, error };
@@ -126,7 +128,7 @@ export async function runScenario(s: Scenario, port: number, model: string): Pro
  */
 export const DEFAULT_PARALLEL = 3;
 
-export async function runEval(opts: { only?: string; model?: string; parallel?: number }): Promise<{ file: string; results: ScenarioResult[] }> {
+export async function runEval(opts: { only?: string; model?: string; parallel?: number; keep?: boolean }): Promise<{ file: string; results: ScenarioResult[] }> {
   const model = opts.model ?? "sonnet";
   const only = opts.only?.split(",").map((s) => s.trim()).filter(Boolean);
   const list = SCENARIOS.filter((s) => !only?.length || only.includes(s.name));
@@ -135,7 +137,7 @@ export async function runEval(opts: { only?: string; model?: string; parallel?: 
   let next = 0;
   const worker = async () => {
     for (let i = next++; i < list.length; i = next++) {
-      const r = await runScenario(list[i]!, 4610 + i, model); // own port per scenario: no clash in parallel
+      const r = await runScenario(list[i]!, 4610 + i, model, opts.keep); // own port per scenario: no clash in parallel
       results[i] = r;
       console.log(`${r.name} … ${r.pass ? "PASS" : "FAIL"}  $${r.costUsd.toFixed(2)}  ${Math.round(r.ms / 1000)}s${r.failures.length ? "\n    " + r.failures.join("\n    ") : ""}${r.warnings.length ? "\n    (warn) " + r.warnings.join("\n    (warn) ") : ""}`);
     }

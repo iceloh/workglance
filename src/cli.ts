@@ -16,7 +16,7 @@ if (cmd === "scan") {
   await import("./server.ts");
 } else if (cmd === "eval") {
   const arg = (name: string) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : undefined; };
-  await (await import("./eval/run.ts")).runEval({ only: arg("--only"), model: arg("--model"), parallel: arg("--parallel") ? Number(arg("--parallel")) : undefined });
+  await (await import("./eval/run.ts")).runEval({ only: arg("--only"), model: arg("--model"), parallel: arg("--parallel") ? Number(arg("--parallel")) : undefined, keep: process.argv.includes("--keep") });
 } else if (cmd === "doctor") {
   const checks = await (await import("./ops.ts")).doctor();
   for (const c of checks) console.log(`${c.ok ? "✓" : "✗"} ${c.name.padEnd(17)} ${c.detail}`);
@@ -34,5 +34,5 @@ if (cmd === "scan") {
 } else if (cmd === "uninstall") {
   (await import("./install.ts")).uninstall();
 } else {
-  console.log("usage: workglance serve | scan | doctor | stop | restart | export | install | uninstall | eval [--only a,b] [--model sonnet] [--parallel 3]");
+  console.log("usage: workglance serve | scan | doctor | stop | restart | export | install | uninstall | eval [--only a,b] [--model sonnet] [--parallel 3] [--keep]");
 }

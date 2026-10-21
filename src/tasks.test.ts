@@ -7,6 +7,17 @@ const A = { session_id: "tab-a", cwd: "C:\\dev\\shop" };
 const B = { session_id: "tab-b", cwd: "C:\\dev\\shop" };
 const where = { repo: "C:\\dev\\shop", worktree: "C:\\dev\\shop", branch: "dev" };
 
+test("an agent closes an investigation with its findings, not just a note; the user and dropping need none", () => {
+  const db = openDb(":memory:");
+  const t = createTask(db, A, where, { title: "Security audit", type: "investigation" });
+  assert.throws(() => updateTask(db, A, "agent", { id: t.id, status: "done", note: "audit complete" }), /closed with its findings/);
+  assert.equal(updateTask(db, A, "agent", { id: t.id, status: "done", note: "audit complete", result: "SQL injection in users.py:4" }).status, "done");
+  const u = createTask(db, A, where, { title: "Look at X", type: "investigation" });
+  assert.equal(updateTask(db, null, "user", { id: u.id, status: "done", note: "enough" }).status, "done");
+  const d = createTask(db, A, where, { title: "Look at Y", type: "investigation" });
+  assert.equal(updateTask(db, A, "agent", { id: d.id, status: "dropped", note: "not needed" }).status, "dropped");
+});
+
 test("create, move with a note, close; history keeps who did what", () => {
   const db = openDb(":memory:");
   const t = createTask(db, A, where, { title: " Fix signer bug ", type: "bug" });

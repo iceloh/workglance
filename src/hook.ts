@@ -11,7 +11,7 @@ import { isIgnored, loadConfig, tempDirs } from "./config.ts";
 import { gitActions, isUnder } from "./transcript.ts";
 import { snapshotText, userChanges, userChangesText, type Task, type UserChange } from "./tasks.ts";
 import { endOfTurnStatus, loadState, saveState, type LiveStatus } from "./state.ts";
-import { NUDGE, protocolFor } from "./protocol.ts";
+import { closeNudge, NUDGE, protocolFor } from "./protocol.ts";
 
 const MAX_NUDGES_PER_SESSION = 8;
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -110,6 +110,7 @@ async function main() {
     out({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx ? `${protocol}\n\n${ctx}` : protocol } });
   } else if (event === "UserPromptSubmit") {
     setLive(sid, "working");
+    saveState(sid, { ...loadState(sid), turnAt: new Date().toISOString() });
     const ctx = await contextFor(sid);
     if (ctx) out({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: ctx } });
   } else if (event === "PermissionRequest" || (event === "Notification" && /permission/i.test(String(p.message ?? "")))) {
@@ -144,18 +145,28 @@ async function main() {
     }
   } else if (event === "Stop") {
     const last = String(p.last_assistant_message ?? "");
-    setLive(sid, endOfTurnStatus(last), endOfTurnStatus(last) === "question" ? lastLine(last) : undefined);
+    const end = endOfTurnStatus(last);
+    setLive(sid, end, end === "question" ? lastLine(last) : undefined);
     if (p.stop_hook_active) return;
     const s = loadState(sid);
-    if (!s.changed) return;
-    // Work done while a task is in progress belongs to it: nothing to ask.
-    if ((await readBoard(sid, Number.MAX_SAFE_INTEGER)).tasks.some((t) => t.status === "in_progress")) { s.changed = 0; saveState(sid, s); return; }
-    if (s.nudges >= MAX_NUDGES_PER_SESSION) return;
-    s.nudges++;
-    s.changed = 0;
-    const now = new Date().toISOString();
-    saveState(sid, { ...s, live: "working", liveAt: now, liveDetail: undefined, nudgeLog: [...(s.nudgeLog ?? []), now].slice(-20) });
-    out({ decision: "block", reason: NUDGE });
+    const nudge = (reason: string, extra: Partial<typeof s> = {}) => {
+      const now = new Date().toISOString();
+      saveState(sid, { ...s, ...extra, nudges: s.nudges + 1, changed: 0, live: "working", liveAt: now, liveDetail: undefined,
+        nudgeLog: [...(s.nudgeLog ?? []), now].slice(-20) });
+      out({ decision: "block", reason });
+    };
+    const tasks = (await readBoard(sid, Number.MAX_SAFE_INTEGER)).tasks;
+    if (s.changed) {
+      // Work done while a task is in progress belongs to it: nothing to ask.
+      if (tasks.some((t) => t.status === "in_progress")) { s.changed = 0; saveState(sid, s); }
+      else { if (s.nudges < MAX_NUDGES_PER_SESSION) nudge(NUDGE); return; }
+    }
+    // An investigation opened in this turn and answered in the chat, but left open with no result: its
+    // findings never reach the board (the eval's investigation_with_findings failures were this).
+    if (end === "question" || s.nudges >= MAX_NUDGES_PER_SESSION) return;
+    const open = tasks.find((t) => t.type === "investigation" && t.status === "in_progress" && t.updated_at >= (s.turnAt ?? "")
+      && !(s.closeNudged ?? []).includes(t.id));
+    if (open) nudge(closeNudge(open.id), { closeNudged: [...(s.closeNudged ?? []), open.id].slice(-50) });
   }
 }
 
