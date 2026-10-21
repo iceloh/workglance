@@ -18,6 +18,17 @@ const base = () => `http://127.0.0.1:${loadConfig().port}`;
 
 export type Check = { name: string; ok: boolean; detail: string };
 
+/**
+ * Pure: is workglance registered, from what `claude mcp get` printed. Its exit code is not used: it prints
+ * "Connected" and still exits non-zero on some versions (0.9.1's doctor said "not registered" for that).
+ */
+export function mcpCheck(stdout: string, error?: string): { ok: boolean; detail: string } {
+  const url = stdout.match(/URL:\s*(http:\/\/127\.0\.0\.1:\d+\/mcp)/)?.[1];
+  if (url) return { ok: true, detail: url };
+  if (error && /ETIMEDOUT|timed out/i.test(error)) return { ok: false, detail: "claude didn't answer in 20 s (try again, or run: claude mcp get workglance)" };
+  return { ok: false, detail: "not registered (run workglance install)" };
+}
+
 export async function doctor(): Promise<Check[]> {
   const out: Check[] = [];
   const add = (name: string, ok: boolean, detail: string) => out.push({ name, ok, detail });
@@ -34,7 +45,8 @@ export async function doctor(): Promise<Check[]> {
   } catch (e) { add("hooks", false, `cannot read Claude settings: ${(e as Error).message}`); }
   // One fixed command string through the shell: `claude` is a .cmd on Windows, which spawn can't run without one.
   const mcp = spawnSync("claude mcp get workglance", { encoding: "utf8", windowsHide: true, shell: true, timeout: 20_000 });
-  add("mcp", mcp.status === 0 && /127\.0\.0\.1/.test(mcp.stdout), mcp.status === 0 ? (mcp.stdout.match(/URL:\s*(\S+)/)?.[1] ?? "registered") : "not registered (run workglance install)");
+  const m = mcpCheck(mcp.stdout ?? "", mcp.error?.message);
+  add("mcp", m.ok, m.detail);
   try {
     const r = await fetch(`${base()}/api/status`, { signal: AbortSignal.timeout(3000) });
     const j = await r.json() as any;
