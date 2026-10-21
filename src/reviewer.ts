@@ -26,11 +26,13 @@ export function reviewable(db: Db, ids?: number[]): number[] {
 
 /** Everything the reviewer may base a decision on, per card. Text written by agents and people is redacted. */
 export function cardFacts(db: Db, ids: number[]): CardFacts[] {
-  const task = db.prepare(`SELECT t.id, t.title, t.status, t.type, t.branch, t.result, ${REPO_NAME} AS repo, r.dev_ref, r.main_ref
-    FROM tasks t LEFT JOIN repos r ON r.id = t.repo WHERE t.id = ?`);
+  // A card with no repo of its own (rare: placed from activity) takes its commits' repo, or main is unknown.
+  const task = db.prepare(`SELECT t.id, t.title, t.status, t.type, t.branch, t.result, r.dev_ref, r.main_ref,
+      CASE WHEN t.repo IS NULL AND r.id IS NOT NULL THEN r.name ELSE ${REPO_NAME} END AS repo
+    FROM tasks t LEFT JOIN repos r ON r.id = COALESCE(t.repo, (SELECT c.repo FROM commits c WHERE c.task_id = t.id LIMIT 1)) WHERE t.id = ?`);
   const notes = db.prepare("SELECT actor, note FROM task_events WHERE task_id = ? AND note IS NOT NULL ORDER BY id DESC LIMIT 4");
   const commits = db.prepare("SELECT sha, subject, in_dev, in_main FROM commits WHERE task_id = ? ORDER BY at DESC LIMIT 20");
-  const pipelines = db.prepare(`SELECT p.sha, p.branch, p.number, p.state FROM commits c JOIN commit_pipelines p ON p.sha = COALESCE(c.matched_as, c.sha)
+  const pipelines = db.prepare(`SELECT DISTINCT p.sha, p.branch, p.number, p.state FROM commits c JOIN commit_pipelines p ON p.sha = COALESCE(c.matched_as, c.sha)
     WHERE c.task_id = ? ORDER BY p.number DESC LIMIT 20`);
   const out: CardFacts[] = [];
   for (const id of ids) {

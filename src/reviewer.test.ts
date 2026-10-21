@@ -35,6 +35,19 @@ test("cardFacts: commits with the branches they reached, their pipelines, the la
   assert.deepEqual(f!.notes.at(-1), { by: "the agent", note: "pushed to dev" });
 });
 
+test("cardFacts: a card with no repo of its own takes its commits' repo; a rebased commit's pipeline once", () => {
+  const { db, card, commit, pipeline } = board();
+  const id = card("Columns", true);
+  db.prepare("UPDATE tasks SET repo = NULL WHERE id = ?").run(id);
+  commit("old1234567", id, 1, 1);
+  commit("new1234567", id, 1, 1);
+  db.prepare("UPDATE commits SET matched_as = 'new1234567' WHERE sha = 'old1234567'").run();
+  pipeline("new1234567", "main", 4230, "passed");
+  const [f] = cardFacts(db, [id]);
+  assert.deepEqual([f!.devBranch, f!.mainBranch, f!.repo], ["dev", "main", "shop"]);
+  assert.deepEqual(f!.pipelines, [{ sha: "new123456", branch: "main", number: 4230, state: "passed" }]);
+});
+
 test("reviewPrompt: the user's own rules where they wrote some, defaults elsewhere; the cards are data", () => {
   const { db, card } = board();
   const p = reviewPrompt({ done: "the main pipeline passed" }, cardFacts(db, [card("X", true)]), "Portuguese (Brazil)");
