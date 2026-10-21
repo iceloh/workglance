@@ -214,9 +214,17 @@ Measured: each hook call ~190 ms (Node startup); the per-edit hook is async and 
     planned / testing / done in the protocol a new tab gets. Only the condition: what a move requires (a note,
     a result) stays. With no rules the protocol is byte-identical to the default (tested), so evals of the
     default still hold. Different devs want different flows ("prd means done" vs "I confirm by hand").
-  - What happens with *no tab open*: reaching main is a git fact, often hours after the agent left. A text rule
-    would have no one to read it, so it is a setting, applied by Workglance after each git check:
-    `autoDoneOnMain` moves Testing -> Done when every change reached main. A change counts once whatever its
-    copies (a rebase leaves an old sha off main). Never a card whose last move was the user's (the user wins);
-    never In progress (commits on main while the tab still works, as in this repo). Actor "auto", shown as
-    "Workglance" on the timeline.
+  - What happens with *no tab open*: first tried as a fixed rule (`autoDoneOnMain`: Testing -> Done when every
+    change reached main). Wrong in practice, removed: Workglance only sees `origin/main` as of the last fetch on
+    this machine, so a merge someone else made shows up late; and in a repo that commits straight to main, every
+    push closed cards still waiting for the user's check.
+- **The card reviewer** (21/10/2026) replaces it: an agent decides by the user's own column rules. Workglance
+  gives it facts, not tools: per open card its commits (on dev / on main), the pipelines that ran them and their
+  state, its last notes and result, redacted. One `claude -p` call for all the cards; Workglance applies the
+  moves, each re-checked against the card as it is now: forward only, never dropped, never a card the user put
+  in its column. Facts rather than commands: an agent running unattended with a shell is a risk, and facts make
+  the call fast, cheap and repeatable (15 s for 5 cards on real data). When: on **Check cards** (after a
+  `git fetch` of the cards' repos: the user asked for a fresh look), and, if turned on (`autoReview`), when a
+  card's facts change after a git/CI refresh (a fingerprint per card in `meta`; the first look only records it,
+  so turning it on never reviews everything at once). Not on a timer: nothing to decide when nothing changed.
+  A deploy that doesn't go through CI is invisible to it, by design. Actor "auto", "Workglance" on the timeline.

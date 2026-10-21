@@ -1,5 +1,5 @@
 // Everything Workglance asks git. Each call is a short-lived `git` process; nothing stays running.
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { normalizeDir } from "./transcript.ts";
 
@@ -9,6 +9,17 @@ export function git(dir: string, args: string[], input?: string): string | null 
   } catch {
     return null;
   }
+}
+
+/**
+ * `git fetch origin` in the background (it can take seconds): only when the user asks for a fresh look
+ * ("Check cards"), so a merge someone else made shows up. Never prompts for credentials; gives up after 30 s.
+ */
+export function fetchOrigin(repo: string, timeoutMs = 30_000): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile("git", ["-C", repo, "fetch", "--quiet", "origin"], { timeout: timeoutMs, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+      (err) => resolve(!err));
+  });
 }
 
 /** Folder -> its worktree root and the repo it belongs to (the shared .git dir), or null outside git. */

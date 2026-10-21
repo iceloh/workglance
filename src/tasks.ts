@@ -90,20 +90,6 @@ export function needsReason(from: TaskStatus, to: TaskStatus): boolean {
   return to === "dropped" || ORDER[to] < ORDER[from];
 }
 
-/**
- * Cards in Testing whose every change has reached main, moved to Done by Workglance itself (the
- * autoDoneOnMain setting). A change counts once whatever its copies (a rebase leaves an old sha that never
- * reaches main). Not a card the user put in Testing: the user wins. Only Testing: an In progress card may
- * have its commits on main while its tab still works on it.
- */
-export function autoDoneOnMain(db: Db): Task[] {
-  const candidates = db.prepare(`SELECT t.id FROM tasks t WHERE t.status = 'testing'
-    AND (SELECT e.actor FROM task_events e WHERE e.task_id = t.id AND e.kind = 'status' ORDER BY e.id DESC LIMIT 1) IS NOT 'user'
-    AND EXISTS (SELECT 1 FROM commits c WHERE c.task_id = t.id)
-    AND NOT EXISTS (SELECT 1 FROM (SELECT max(COALESCE(c.in_main, 0) = 1) AS m FROM commits c WHERE c.task_id = t.id GROUP BY c.repo, c.subject) WHERE m = 0)`).all() as { id: number }[];
-  return candidates.map(({ id }) => updateTask(db, null, "auto", { id, status: "done", note: "all its changes reached main (Settings: move to Done when commits reach main)" }));
-}
-
 /** The user moved a card on the board. Never commits, pushes or deploys anything: it only informs the tab. */
 export function userMove(db: Db, id: number, to: TaskStatus, note?: string): Task {
   const t = getTask(db, id);

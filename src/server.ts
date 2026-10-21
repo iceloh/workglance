@@ -10,7 +10,10 @@ import { openDb, WORKGLANCE_HOME } from "./db.ts";
 import { appFile } from "./paths.ts";
 import { iconSvg } from "./icon.ts";
 import { allStates } from "./state.ts";
-import { autoDoneOnMain, TaskError, userComment, userMove, type TaskStatus } from "./tasks.ts";
+import { TaskError, userComment, userMove, type TaskStatus } from "./tasks.ts";
+import { changedCards, review, type ReviewResult } from "./reviewer.ts";
+import { askClaude } from "./claude.ts";
+import { fetchOrigin } from "./git.ts";
 import { scan } from "./scan.ts";
 import { replayFailedCalls } from "./replay.ts";
 import { loadConfig } from "./config.ts";
@@ -56,6 +59,7 @@ const windows = new WindowRegistry();
 const sessionCwd = db.prepare("SELECT cwd FROM locations WHERE session_id = ? ORDER BY first_at LIMIT 1");
 
 let gitAt = 0, gitRunning = false, gitError: string | null = null, version = 0;
+let gitRun: Promise<void> | null = null;
 const newestGitAction = db.prepare("SELECT max(at) AS at FROM git_actions");
 
 /** New transcript lines, then any workglance call that failed while this server was down. */
@@ -66,23 +70,45 @@ function catchUp(): void {
   if (s.facts || replayed.length) version++;
 }
 
-function refreshGit(): void {
+/** Starts a git refresh if one is due (or `force`); resolves when the running one ends. */
+function refreshGit(force = false): Promise<void> {
   // The demo board (scripts/demo.ts) describes folders that don't exist: checking git would erase it.
-  if (gitRunning || process.env.WORKGLANCE_DEMO === "1") return;
+  if (process.env.WORKGLANCE_DEMO === "1") return Promise.resolve();
+  if (gitRun) return gitRun;
   // A tab just committed/pushed: don't make the board wait for the next 2-minute slot.
   const latest = (newestGitAction.get() as { at: string | null }).at;
   const fresh = latest !== null && Date.parse(latest) > gitAt;
-  if (!fresh && Date.now() - gitAt < GIT_EVERY_MS) return;
+  if (!force && !fresh && Date.now() - gitAt < GIT_EVERY_MS) return Promise.resolve();
   gitRunning = true;
   gitAt = Date.now();
-  const w = new Worker(appFile("refresh-worker"));
-  w.once("message", (m: { error: string | null }) => { gitError = m.error; });
-  // gitAt stays at the START of the run: an action that happened during it triggers the next one.
-  w.once("exit", () => {
-    gitRunning = false; version++;
-    // Fresh git facts: a card in Testing whose changes all reached main moves to Done, if the user asked for it.
-    if (loadConfig().autoDoneOnMain) try { autoDoneOnMain(db); } catch (e) { console.error("auto done:", e instanceof Error ? e.message : e); }
+  gitRun = new Promise<void>((resolve) => {
+    const w = new Worker(appFile("refresh-worker"));
+    w.once("message", (m: { error: string | null }) => { gitError = m.error; });
+    // gitAt stays at the START of the run: an action that happened during it triggers the next one.
+    w.once("exit", () => { gitRunning = false; gitRun = null; version++; afterGit(); resolve(); });
   });
+  return gitRun;
+}
+
+/**
+ * Fresh git and CI facts: the open cards whose facts changed (a pipeline finished, a commit reached a new
+ * branch) go to the reviewer, if the user turned the automatic review on. Fingerprints are kept current
+ * either way, so turning it on later doesn't review everything at once.
+ */
+function afterGit(): void {
+  try {
+    const changed = changedCards(db);
+    if (changed.length && loadConfig().autoReview) void runReview(changed).catch((e) => console.error("review:", e instanceof Error ? e.message : e));
+  } catch (e) { console.error("review:", e instanceof Error ? e.message : e); }
+}
+
+let reviewing: Promise<ReviewResult> | null = null;
+/** One review at a time; a request while one runs waits for it, then runs its own. */
+async function runReview(ids?: number[]): Promise<ReviewResult> {
+  while (reviewing) await reviewing.catch(() => {});
+  const cfg = loadConfig();
+  reviewing = review(db, ids, cfg.columnRules, cfg.digestLanguage, (prompt, system) => askClaude(prompt, system, 180_000));
+  try { const r = await reviewing; if (r.moved.length) version++; return r; } finally { reviewing = null; }
 }
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -258,6 +284,22 @@ const server = http.createServer((req, res) => {
     }).catch((e) => res.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ error: e instanceof Error ? e.message : "failed" })));
     return;
   }
+  // "Check cards": fetch the cards' repos (a merge someone else made shows up), refresh git and CI, then the
+  // reviewer decides by the user's column rules. Up to a few minutes: fetch, git, one claude -p call.
+  if (url.pathname === "/api/review") {
+    if (req.method !== "POST" || !String(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(405).end(); return; }
+    readJson(req).then(async (body) => {
+      const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(Number.isInteger).slice(0, 200) : undefined;
+      const repos = (db.prepare(`SELECT DISTINCT repo FROM tasks WHERE repo IS NOT NULL AND status IN ('in_progress','testing')
+        ${ids ? `AND id IN (${ids.map(() => "?").join(",") || "NULL"})` : ""}`).all(...(ids ?? [])) as { repo: string }[]).map((r) => r.repo);
+      await Promise.all(repos.map((r) => fetchOrigin(r)));
+      await gitRun;
+      await refreshGit(true);
+      const result = await runReview(ids);
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(result));
+    }).catch((e) => res.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ error: e instanceof Error ? e.message : "failed" })));
+    return;
+  }
   if (url.pathname === "/api/pick-folder") {
     // Settings' "Choose a folder…": the system's own folder window, on this machine, while the user picks.
     if (req.method !== "POST" || !String(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(405).end(); return; }
@@ -268,10 +310,10 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/api/settings/columns") {
     if (req.method !== "POST" || !String(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(405).end(); return; }
     readJson(req).then((body) => {
-      const rules = parseColumnRules(body.rules), autoDoneOnMain = body.autoDoneOnMain === true;
-      setConfig({ columnRules: rules, autoDoneOnMain });
+      const rules = parseColumnRules(body.rules), autoReview = body.autoReview === true;
+      setConfig({ columnRules: rules, autoReview, autoDoneOnMain: undefined }); // autoDoneOnMain: the fixed rule this replaced
       version++;
-      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ rules, autoDoneOnMain }));
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ rules, autoReview }));
     }).catch(() => res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: "bad request" })));
     return;
   }
@@ -309,7 +351,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/settings") {
     const c = loadConfig();
     const html = renderSettingsPage(untrackedFolders(), { times: c.digestTimes, summary: c.digestSummary, language: c.digestLanguage },
-      { rules: c.columnRules, autoDoneOnMain: c.autoDoneOnMain });
+      { rules: c.columnRules, autoReview: c.autoReview });
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" }).end(html);
     return;
   }

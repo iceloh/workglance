@@ -20,7 +20,8 @@ across every repo and worktree, what each tab did, what is still undone and whic
   status from GitHub Actions or Bitbucket. A card marked done whose code never reached main gets flagged.
 - **Steer from the board.** Drag a card back or comment on it; the tab reads it on its next prompt.
   Review the card's diff and send line comments to the tab. Filter the board by repo or by tab. Write
-  each column's rule in your own words, and let a card move to Done by itself when its code reaches main.
+  each column's rule in your own words; a reviewer agent moves the cards that meet it, from their commits,
+  branches and pipelines (on demand, or when a pipeline finishes).
 - **Memory across tabs.** Search everything any tab ever did, and your agents can search it too before
   redoing work someone already did. Any tab can tell which repos have open cards and pick up work in
   another repo, or answer "what did each repo cost in AI this month?".

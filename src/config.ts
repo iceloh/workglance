@@ -20,8 +20,8 @@ export type Config = {
   digestLanguage: string;
   /** The user's own rule for when an agent moves a card to these columns, in their words; unset = the default. */
   columnRules: ColumnRules;
-  /** When every change of a card in Testing has reached main, Workglance moves it to Done by itself. */
-  autoDoneOnMain: boolean;
+  /** When a card's facts change (a pipeline finished, a commit reached a new branch), the reviewer checks it. */
+  autoReview: boolean;
 };
 
 export const RULE_COLUMNS = ["planned", "testing", "done"] as const;
@@ -77,7 +77,7 @@ export function loadConfig(): Config {
     digestSummary: (raw as { digestSummary?: unknown }).digestSummary !== false,
     digestLanguage: parseLanguage((raw as { digestLanguage?: unknown }).digestLanguage),
     columnRules: parseColumnRules((raw as { columnRules?: unknown }).columnRules),
-    autoDoneOnMain: (raw as { autoDoneOnMain?: unknown }).autoDoneOnMain === true,
+    autoReview: (raw as { autoReview?: unknown }).autoReview === true,
   };
 }
 

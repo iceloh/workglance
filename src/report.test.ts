@@ -10,7 +10,7 @@ import { join } from "node:path";
 const untrackedNotes = () => {
   const db = openDb(":memory:");
   const notes = "C:\\dev\\notes", shop = "C:\\dev\\shop";
-  const cfg = { enabled: true, port: 1, ignore: [pathKey(notes)], bitbucketNetrc: null, prices: {}, digestTimes: ["08:00"], digestSummary: false, digestLanguage: "", columnRules: {}, autoDoneOnMain: false };
+  const cfg = { enabled: true, port: 1, ignore: [pathKey(notes)], bitbucketNetrc: null, prices: {}, digestTimes: ["08:00"], digestSummary: false, digestLanguage: "", columnRules: {}, autoReview: false };
   const session = db.prepare("INSERT INTO sessions(id, transcript, titles) VALUES (?, ?, '[]')");
   const loc = db.prepare("INSERT INTO locations(session_id, cwd, branch, first_at, last_at) VALUES (?, ?, '', 'a', 'b')");
   return { db, cfg, notes, shop, session, loc };

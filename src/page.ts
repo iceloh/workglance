@@ -187,23 +187,23 @@ export const DEFAULT_RULES = {
   done: "The work is finished (it always closes with a result: what changed, how it was verified, what is left)",
 } as const;
 
-function columnsPanel(c: { rules: Partial<Record<keyof typeof DEFAULT_RULES, string>>; autoDoneOnMain: boolean }): string {
+function columnsPanel(c: { rules: Partial<Record<keyof typeof DEFAULT_RULES, string>>; autoReview: boolean }): string {
   const field = (k: keyof typeof DEFAULT_RULES, label: string) => `<div class="field"><label class="label" for="rule-${k}">${label}</label><div class="fieldbody">
 <textarea id="rule-${k}" name="${k}" rows="2" maxlength="400" placeholder="Default: ${esc(DEFAULT_RULES[k])}">${esc(c.rules[k] ?? "")}</textarea></div></div>`;
   return `<section class="panel">
 <h3>Columns</h3>
-<p class="muted">When an agent moves a card to each column. Write your own rule in your words; it replaces the default one every agent is told. Leave it empty to keep the default. New tabs read it when they start; open tabs after a restart.</p>
+<p class="muted">When a card moves to each column, in your words (e.g. "Done: the main pipeline that contains its commits passed, main deploys to production"). Leave one empty to keep the default. Your rules are followed by the agent in each tab, and by the reviewer: <b>Check cards</b> on the board, or the automatic review below, compares each open card's commits, branches and pipelines with them and moves it when a rule is met.</p>
 <form onsubmit="return saveColumns(this)">
 ${field("planned", "Planned")}${field("testing", "Testing")}${field("done", "Done")}
-<div class="field"><span class="label">Automatic</span><div class="fieldbody"><label class="check"><input type="checkbox" name="autoDone"${c.autoDoneOnMain ? " checked" : ""}> When every change of a card in Testing reaches <code>main</code>, move it to Done</label>
-<div class="muted small">Workglance does it itself after checking git, even with no tab open. Never a card you put in Testing yourself.</div></div></div>
+<div class="field"><span class="label">Automatic review</span><div class="fieldbody"><label class="check"><input type="checkbox" name="autoReview"${c.autoReview ? " checked" : ""}> When a card's pipeline finishes or its commits reach a new branch, check it against these rules</label>
+<div class="muted small">One <code>claude -p</code> call each time, on your subscription. Never moves a card back, never drops one, never moves one you put in its column yourself.</div></div></div>
 <div class="formactions"><button class="btn primary">Save</button><span class="small" id="columnsstatus"></span></div>
 </form>
 </section>`;
 }
 
 export function renderSettingsPage(untracked: string[], digest: { times: string[]; summary: boolean; language: string } = { times: ["08:00"], summary: true, language: "" },
-  columns: { rules: Partial<Record<keyof typeof DEFAULT_RULES, string>>; autoDoneOnMain: boolean } = { rules: {}, autoDoneOnMain: false }): string {
+  columns: { rules: Partial<Record<keyof typeof DEFAULT_RULES, string>>; autoReview: boolean } = { rules: {}, autoReview: false }): string {
   const langs = digest.language && !LANGUAGES.includes(digest.language) ? [digest.language, ...LANGUAGES] : LANGUAGES;
   return shell("Settings", `${topNav("settings")}<main class="detail settings">
 <h2>Settings</h2>
@@ -257,12 +257,12 @@ syncTimes();
 let folders=null;
 const ago=(iso)=>{const h=(Date.now()-Date.parse(iso))/3600e3,d=Math.round(h/24);return h<1?"in the last hour":h<24?Math.round(h)+" h ago":d===1?"yesterday":d+" days ago"};
 async function saveColumns(f){const s=document.getElementById("columnsstatus");
-  const body={rules:{planned:f.planned.value,testing:f.testing.value,done:f.done.value},autoDoneOnMain:f.autoDone.checked};
+  const body={rules:{planned:f.planned.value,testing:f.testing.value,done:f.done.value},autoReview:f.autoReview.checked};
   const r=await fetch("/api/settings/columns",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}).catch(()=>null);
   const j=r?await r.json().catch(()=>({})):{};
   if(!r||!r.ok){s.className="small err";s.textContent="Not saved: "+(j.error||"the local server didn't answer");return false}
   const own=Object.keys(j.rules).length;s.className="small ok";
-  s.textContent="Saved: "+(own?own+" rule"+(own>1?"s":"")+" of yours":"the default rules")+(j.autoDoneOnMain?" · main moves cards to Done":"")+". New tabs follow it; restart open ones.";return false}
+  s.textContent="Saved: "+(own?own+" rule"+(own>1?"s":"")+" of yours":"the default rules")+(j.autoReview?" · automatic review on":"")+". New tabs follow it; restart open ones.";return false}
 // Folder browser: any folder of this PC, listed by the local server (names of subfolders only).
 let cur=null;
 const unquote=(s)=>s.trim().replace(/^"(.*)"$/,"$1").trim();
@@ -459,9 +459,11 @@ export function renderPage(v: { stats: BoardStats; live: LiveTab[]; attention: A
   const tabOpts = new Map<string, string>();
   for (const t of [...v.tabs, ...v.tasks.flatMap((k) => k.tabs)]) if (!tabOpts.has(t.id)) tabOpts.set(t.id, t.title ?? t.id.slice(0, 8));
   const filters = `<select id="frepo" class="filter" aria-label="Filter by repo"><option value="">All repos</option>${repos.map((r) => `<option value="${esc(r.toLowerCase())}">${esc(r)}</option>`).join("")}</select>
-<select id="ftab" class="filter" aria-label="Filter by tab"><option value="">All tabs</option>${[...tabOpts].map(([id, title]) => `<option value="${esc(id)}">${esc(title)}</option>`).join("")}</select>`;
+<select id="ftab" class="filter" aria-label="Filter by tab"><option value="">All tabs</option>${[...tabOpts].map(([id, title]) => `<option value="${esc(id)}">${esc(title)}</option>`).join("")}</select>
+<button type="button" class="btn" id="reviewbtn" onclick="checkCards(this)" title="Check the open cards on this page against your column rules (Settings), from their commits, branches and pipelines">Check cards</button>`;
   return shell("Workglance", `${topNav("board", `<input id="q" placeholder="Filter this page…" autocomplete="off">${filters}<nav class="ranges">${rangeLinks}</nav><span class="muted">${gitNote}${v.git.error ? " · <b>git error</b>" : ""} · ${health}</span>`)}
 <div class="layout">${rail(v.live)}<main>
+<div id="reviewout" class="reviewout" hidden></div>
 ${statsStrip(v.stats, v.range)}
 ${attentionPanel(v.attention)}
 <h2>Work <span class="muted" id="worktotal" data-n="${v.tasks.length}">(${v.tasks.length} tasks)</span></h2>
@@ -484,8 +486,25 @@ function applyFilters(){const s=q.value.trim().toLowerCase(),r=fr.value,t=ft.val
   const keep=(u)=>{r?u.searchParams.set("repo",r):u.searchParams.delete("repo");t?u.searchParams.set("tab",t):u.searchParams.delete("tab");return u};
   history.replaceState(null,"",keep(new URL(location.href)));for(const a of document.querySelectorAll("a.period"))a.href=keep(new URL(a.href))}
 q.addEventListener("input",applyFilters);fr.addEventListener("change",applyFilters);ft.addEventListener("change",applyFilters);applyFilters();
+// "Check cards": the reviewer on the open cards this page shows (filters apply), result in a panel on top.
+let reviewOpen=false;
+async function checkCards(b){const out=document.getElementById("reviewout");out.hidden=false;out.textContent="";reviewOpen=true;
+  const ids=[...document.querySelectorAll(".task")].filter(c=>c.style.display!=="none"&&(c.dataset.status==="in_progress"||c.dataset.status==="testing")).map(c=>Number(c.dataset.id));
+  const done=(...extra)=>{const row=el("div","rvactions"),reload=el("button","btn","Reload the board"),close=el("button","mini","Close");reload.type=close.type="button";
+    reload.onclick=()=>location.reload();close.onclick=()=>{out.hidden=true;reviewOpen=false};row.append(...extra,close,reload);out.append(row)};
+  if(!ids.length){out.append(el("div","muted small","No card In progress or Testing on this page."));done();return}
+  b.disabled=true;out.append(el("div","muted","Checking "+ids.length+" card"+(ids.length>1?"s":"")+": fetching their repos, checking git and CI, then asking Claude… this can take a few minutes."));
+  const r=await fetch("/api/review",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({ids})}).catch(()=>null);
+  const j=r?await r.json().catch(()=>({})):{};b.disabled=false;out.textContent="";
+  if(!r||!r.ok){out.append(el("div","small err","Not checked: "+(j.error||"the local server didn't answer. Try again in a few seconds.")));done();return}
+  out.append(el("h4",null,j.moved.length?"Moved "+j.moved.length+" card"+(j.moved.length>1?"s":""):"Nothing moved"));
+  for(const m of j.moved){const row=el("div","rv"),a=el("a",null,"W-"+m.id+" "+m.title);a.href="/task/"+m.id;
+    row.append(a,el("span","chip",m.from.replace("_"," ")+" → "+m.to),el("div","muted small",m.reason));out.append(row)}
+  if(j.kept.length){const d=el("details");d.append(el("summary",null,"Stayed where they are: "+j.kept.length));
+    for(const k of j.kept){const row=el("div","rv"),a=el("a",null,"W-"+k.id+" "+k.title);a.href="/task/"+k.id;row.append(a,el("div","muted small",k.reason));d.append(row)}out.append(d)}
+  done()}
 let v=${v.version};
-setInterval(async()=>{try{const r=await fetch("/api/version");const j=await r.json();if(j.version!==v&&document.activeElement!==q&&!(document.activeElement&&document.activeElement.tagName==="SELECT")&&!document.querySelector("details[open]")&&!dragging)location.reload()}catch{}},20000);
+setInterval(async()=>{try{const r=await fetch("/api/version");const j=await r.json();if(j.version!==v&&!reviewOpen&&document.activeElement!==q&&!(document.activeElement&&document.activeElement.tagName==="SELECT")&&!document.querySelector("details[open]")&&!dragging)location.reload()}catch{}},20000);
 let dragging=null;
 for(const c of document.querySelectorAll(".task[draggable]")){
   c.addEventListener("dragstart",(e)=>{dragging=c;e.dataTransfer.setData("text/plain",c.dataset.id);c.classList.add("dragging")});
@@ -652,6 +671,9 @@ mark{background:rgba(254,230,0,.55);color:inherit;border-radius:3px;padding:0 2p
 .top{position:sticky;top:0;z-index:2;display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:12px 20px;background:var(--bg);border-bottom:1px solid var(--line)}
 .top h1{font-size:17px;margin:0}.top input{flex:1;min-width:180px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text)}
 .top select.filter{max-width:140px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);font:inherit;font-size:13px;color-scheme:light dark}
+.reviewout{margin:10px 0;padding:12px 16px;border:1px solid var(--accent);border-radius:10px;background:var(--card)}.reviewout h4{margin:0 0 8px}
+.rv{padding:6px 0;border-top:1px solid var(--line)}.rv a{font-weight:600;text-decoration:none;margin-right:8px}.rv .chip{font-size:11px}
+.reviewout details summary{cursor:pointer;margin:8px 0 4px;color:var(--muted)}.rvactions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
 .top select.filter.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .ranges a{padding:4px 9px;border-radius:6px;color:var(--muted);text-decoration:none}.ranges a.on{background:var(--accent);color:#fff}
 main{padding:16px 20px;max-width:1500px;margin:0 auto}h2{font-size:15px;margin:22px 0 10px}

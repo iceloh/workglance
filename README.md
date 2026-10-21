@@ -20,7 +20,9 @@ on your machine, without you writing anything down.
   what the agent says.
 - **You steer from the board.** Drag a card back to "in progress" or comment on it, and the tab reads it
   on its next prompt. Your changes always win over the agent's. Each column's rule is yours to rewrite in
-  plain words ("testing = deployed to dev"), and a card can move to Done by itself when its code reaches main.
+  plain words ("done = the main pipeline passed"). A reviewer agent checks the open cards against them, from
+  their commits, branches and pipelines, and moves the ones that meet a rule: when you click **Check cards**,
+  or by itself when a card's pipeline finishes.
 - **Who needs you, live.** A rail of tabs: waiting for an answer, waiting for a permission, working, idle.
   One click opens that exact Claude Code session, in the VS Code window that has it.
 - **One repo or one tab at a time.** Filter the board by repo and by tab from the top bar; the filter stays
@@ -108,8 +110,9 @@ Everything stays on your machine, in `~/.workglance/` (one SQLite file, daily ba
 The server listens on `127.0.0.1` only and refuses other hosts and cross-site requests. Nothing is sent
 anywhere, except:
 
-- the **daily digest summary**, only when you click it: sent to `claude -p` (your own Claude Code),
-  with secrets redacted first;
+- the **digest summary**, and the **card reviewer** (Check cards, or the automatic review if you turn it
+  on): sent to `claude -p` (your own Claude Code), with secrets redacted first;
+- **`git fetch`** of the open cards' repos, only when you click Check cards;
 - **CI status**: read-only calls to GitHub's or Bitbucket's API for the repos you work on.
 
 Agents only ever see search results and card titles as data, never as instructions.
@@ -129,7 +132,7 @@ Agents only ever see search results and card titles as data, never as instructio
   "digestSummary": true,
   "digestLanguage": "Portuguese",
   "columnRules": { "testing": "Deployed to dev and the pipeline is green" },
-  "autoDoneOnMain": true
+  "autoReview": true
 }
 ```
 
@@ -150,8 +153,9 @@ Agents only ever see search results and card titles as data, never as instructio
 - `columnRules`: your own rule for when an agent moves a card to `planned`, `testing` or `done`, in your
   words (e.g. "never move it to done, leave it in testing for me"). It replaces that column's default rule in
   what every new tab is told; what a move requires (a note, a result) stays. Also editable in Settings.
-- `autoDoneOnMain`: when every change of a card in Testing has reached `main`, Workglance moves it to Done
-  itself, even with no tab open (default `false`). Never a card you put in Testing yourself.
+- `autoReview`: when a card's pipeline finishes or its commits reach a new branch, the reviewer checks that
+  card against your column rules (default `false`; one `claude -p` call each time). **Check cards** on the
+  board does the same on demand, for the open cards on the page, after a `git fetch` of their repos.
 - `prices`: $ per million tokens for models missing from (or priced differently than) the built-in table.
   `workglance doctor` lists any model in use that has no price; its cost is left out, never guessed.
 

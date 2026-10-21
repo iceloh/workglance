@@ -1,10 +1,7 @@
 // The day in one page: what got done, what moved, what got committed, where the model work went.
 // Computed from data (no model call). An optional one-paragraph summary runs `claude -p` on request.
-import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { Db } from "./db.ts";
+import { askClaude } from "./claude.ts";
 import { costBetween, type CostSummary } from "./cost.ts";
 import { REPO_NAME as REPO } from "./tasks.ts";
 
@@ -129,26 +126,10 @@ Be concrete and short; no filler.
 
 `;
 
-export function summarize(text: string, language = "", timeoutMs = 120_000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const prompt = summaryShape(language) + text;
-    const cwd = mkdtempSync(join(tmpdir(), "wt-digest-"));
-    // The text goes in through stdin, never on the command line: on Windows `claude` is a .cmd run by
-    // cmd.exe, which would read a prompt's & or | as its own syntax.
-    // --setting-sources without "user": none of the user's hooks (ours or other tools') run on this call;
-    // another tool's hook once appended its own lines to the summary.
-    // CLAUDE.md files can't be switched off on a subscription (--bare needs an API key), so say what we
-    // want and keep only the prose: a personal "add a corrections section" rule once landed in the digest.
-    const p = spawn(`claude -p --max-turns 1 --setting-sources project,local --append-system-prompt "${ONLY_SUMMARY}"`, { cwd, env: { ...process.env, WORKGLANCE_DISABLED: "1" }, shell: true, windowsHide: true });
-    // When claude isn't installed the shell exits before reading the prompt: the write fails with EPIPE, and
-    // unhandled, that error took the whole server down (its scheduled digest runs at start).
-    p.stdin.on("error", () => {});
-    p.on("error", (e) => reject(e));
-    p.stdin.end(prompt);
-    let out = "", err = "";
-    const timer = setTimeout(() => { p.kill(); reject(new Error("summary timed out")); }, timeoutMs);
-    p.stdout.on("data", (c) => (out += c));
-    p.stderr.on("data", (c) => (err += c));
-    p.on("close", (code) => { clearTimeout(timer); const text = proseOnly(out); code === 0 && text ? resolve(text) : reject(new Error(err.trim().slice(0, 300) || `exit ${code}`)); });
-  });
+// CLAUDE.md files can't be switched off on a subscription (--bare needs an API key), so say what we want
+// and keep only the prose: a personal "add a corrections section" rule once landed in the digest.
+export async function summarize(text: string, language = "", timeoutMs = 120_000): Promise<string> {
+  const prose = proseOnly(await askClaude(summaryShape(language) + text, ONLY_SUMMARY, timeoutMs));
+  if (!prose) throw new Error("empty summary");
+  return prose;
 }
