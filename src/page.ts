@@ -352,7 +352,7 @@ ${BOARD_JS}
  * Browser side of the board actions. Moving a card backwards (or dropping it) asks why: that reason is
  * what the tab will act on. The server enforces the same rule; this only asks before sending.
  */
-const BOARD_JS = `
+export const BOARD_JS = `
 const ORDER={planned:0,in_progress:1,testing:2,done:3,dropped:4};
 async function send(url,body){const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
   if(!r.ok){const j=await r.json().catch(()=>({}));alert(j.error||"Could not save");return false}return true}
@@ -386,13 +386,23 @@ async function loadDiff(id){const box=document.getElementById("review");box.text
         for(const l of h.lines){const tr=el("tr",l.kind);tr.append(el("td","num",l.old??""),el("td","num",l.new??""),el("td","code",(l.kind==="add"?"+":l.kind==="del"?"-":" ")+l.text));
           tr.onclick=()=>addComment(tr,f.path,l.new??l.old);tbl.append(tr)}}
       d.append(tbl);box.append(d)}}
-  const send=el("button","btn","Send review to the tab");send.onclick=()=>sendReview(id);box.append(send)}
+  box.prepend(el("p","muted small","Click any line to comment on it. Your comments go to the tab that did this work as one message; it reads them on its next prompt."));
+  const bar=el("div","reviewbar"),send=el("button","btn primary");send.id="sendreview";send.onclick=()=>sendReview(id);
+  const status=el("span","small");status.id="reviewstatus";bar.append(send,status);box.append(bar);updateSend()}
+const reviewComments=()=>review.map(c=>({file:c.file,line:c.line,text:c.text})).filter(c=>c.text.trim());
+// The button says what it will send, and stays off until there is something to send.
+function updateSend(){const b=document.getElementById("sendreview");if(!b)return;const n=reviewComments().length;b.disabled=!n;
+  b.textContent=n?"Send "+n+" comment"+(n>1?"s":"")+" to the tab":"Send review to the tab";
+  b.title=n?"":"Click a line in the diff and write a comment first"}
+function reviewStatus(text,kind){const s=document.getElementById("reviewstatus");s.textContent=text;s.className="small "+kind}
 function addComment(tr,file,line){if(tr.nextSibling&&tr.nextSibling.classList&&tr.nextSibling.classList.contains("cm"))return;
-  const row=el("tr","cm"),td=el("td");td.colSpan=3;const ta=el("textarea");ta.rows=2;ta.placeholder="Comment on "+file+":"+line;td.append(ta);row.append(td);tr.after(row);ta.focus();
+  const row=el("tr","cm"),td=el("td");td.colSpan=3;const ta=el("textarea");ta.rows=2;ta.placeholder="Comment on "+file+":"+line;ta.oninput=updateSend;td.append(ta);row.append(td);tr.after(row);ta.focus();
   review.push({file,line,get text(){return ta.value}})}
-async function sendReview(id){const comments=review.map(c=>({file:c.file,line:c.line,text:c.text})).filter(c=>c.text.trim());
-  if(!comments.length){alert("Click a line and write a comment first.");return}
-  if(await send("/api/tasks/"+id+"/review",{comments}))location.reload()}
+async function sendReview(id){const comments=reviewComments();if(!comments.length)return;
+  const b=document.getElementById("sendreview");b.disabled=true;reviewStatus("Sending…","muted");
+  const r=await fetch("/api/tasks/"+id+"/review",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({comments})}).catch(()=>null);
+  if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};reviewStatus("Not sent: "+(j.error||"the local server didn't answer. Try again in a few seconds."),"err");b.disabled=false;return}
+  reviewStatus("Sent. The tab reads your review on its next prompt; it's on the timeline below.","ok");setTimeout(()=>location.reload(),1500)}
 async function post(url,body){if(await send(url,body))location.reload()}
 function dismissItem(b,days){post("/api/attention/dismiss",{key:b.dataset.key,days:days||null})}
 function untrackPath(b){if(confirm("Untrack "+b.dataset.path+"?\\n\\nWorkglance stops looking at this folder (no cards, nudges or git checks) and forgets what it stored about it. Tasks stay. You can undo it in Settings."))post("/api/untrack",{path:b.dataset.path})}
@@ -452,7 +462,9 @@ mark{background:rgba(254,230,0,.55);color:inherit;border-radius:3px;padding:0 2p
 .task[draggable]{cursor:grab}.task.dragging{opacity:.5}.col.over{outline:2px dashed var(--accent);outline-offset:-2px}
 .unseen{color:var(--accent);font-size:12px;font-weight:600;margin:4px 0}
 .actions{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}.btn{font:inherit;font-size:13px;padding:5px 11px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--text);cursor:pointer}
-.btn:hover{border-color:var(--accent)}.btn.danger{color:#c2410c}
+.btn:hover{border-color:var(--accent)}.btn.danger{color:#c2410c}.btn:disabled{opacity:.5;cursor:default;border-color:var(--line)}
+.reviewbar{position:sticky;bottom:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding:10px 0;background:var(--bg);border-top:1px solid var(--line)}
+.small.ok{color:#1f8a4c}.small.err{color:#c2410c}
 .comment{display:flex;gap:8px;align-items:flex-start;margin:6px 0 4px}.comment textarea{flex:1;font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);resize:vertical}
 :root{--bg:#f6f7f9;--card:#fff;--text:#1d2330;--muted:#6b7280;--line:#e3e6eb;--chip:#eef1f5;--done:#1f8a4c;--testing:#b7791f;--prog:#2b6cb0;--local:#6b7280;--accent:#4f46e5}
 @media (prefers-color-scheme:dark){:root{--bg:#111318;--card:#1a1d24;--text:#e6e8ec;--muted:#9aa1ad;--line:#2a2e37;--chip:#252a33;--accent:#8b85ff}}

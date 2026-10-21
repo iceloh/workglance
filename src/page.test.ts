@@ -1,6 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { short } from "./page.ts";
+import { BOARD_JS, short } from "./page.ts";
+
+test("BOARD_JS: the board's browser script parses (an error there silently breaks every page)", () => {
+  assert.doesNotThrow(() => new Function(BOARD_JS));
+});
+
+test("review: guidance and results inline, never a browser alert", () => {
+  const review = BOARD_JS.slice(BOARD_JS.indexOf("async function loadDiff"), BOARD_JS.indexOf("async function post("));
+  assert.ok(review.length > 0);
+  assert.doesNotMatch(review, /alert\(/);
+  assert.match(review, /reads them on its next prompt/);
+  assert.match(review, /b\.disabled=!n/, "Send stays off until a comment has text");
+});
 
 test("short: worktrees by name, the home folder as ~, long paths by their last two parts", () => {
   assert.equal(short("C:\\code\\shop\\.claude\\worktrees\\fix-login", "C:\\Users\\jane"), "⎇ fix-login");
